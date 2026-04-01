@@ -1,0 +1,48 @@
+{
+  "responses_checked": 456,
+  "responses_matched": 20,
+  "unique_urns_captured": 0,
+  "captured_urns": [],
+  "matched_responses": [
+    {
+      "url": "https://www.linkedin.com/voyager/api/graphql?includeWebMetadata=true&variables=()&queryId=voyagerJobsDashJobSeekerPreferences.53d4a0b454b82ce339abf8afc2c65190",
+      "content_type": "application/vnd.linkedin.normalized+json+2.1; charset=UTF-8",
+      "body_length": 1078,
+      "has_urn": false,
+      "has_included": true,
+      "first_500_chars": "{\"data\":{\"data\":{\"*jobsDashJobSeekerPreferences\":\"urn:li:fsd_jobSeekerPreference:urn:li:fsd_profile:ACoAADMpLxcBGyxGMeprrg2xM6nw2zP0qpS4zGk\",\"$recipeTypes\":[\"com.linkedin.d0636be5b0d807724e380ffb58e1ca2d\"],\"$type\":\"com.linkedin.d0636be5b0d807724e380ffb58e1ca2d\"},\"extensions\":{\"webMetadata\":{}}},\"meta\":{\"microSchema\":{\"isGraphQL\":true,\"version\":\"2.1\",\"types\":{\"com.linkedin.48e5bfe2b78d5fd23183fbd54751f1c9\":{\"fields\":{\"isSemanticJobSearchMode\":{\"type\":\"boolean\"},\"entityUrn\":{\"type\":\"com.linkedin.v"
+    },
+    {
+      "url": "https://www.linkedin.com/voyager/api/voyagerGlobalAlerts?adHocAlerts=true&alertWithActions=true&q=findAlerts",
+      "content_type": "application/vnd.linkedin.normalized+json+2.1; charset=UTF-8",
+      "body_length": 222,
+      "has_urn": false,
+      "has_included": true,
+      "first_500_chars": "{\"data\":{\"entityUrn\":\"urn:li:collectionResponse:3QITzC8NvbcKzgrO0heDD5G4u59P2oThQ34Ksxtu4sc=\",\"elements\":[],\"paging\":{\"count\":10,\"start\":0,\"links\":[]},\"$type\":\"com.linkedin.restli.common.CollectionResponse\"},\"included\":[]}"
+    },
+    {
+      "url": "https://www.linkedin.com/voyager/api/graphql?includeWebMetadata=true&variables=(memberIdentity:ACoAADMpLxcBGyxGMeprrg2xM6nw2zP0qpS4zGk)&queryId=voyagerIdentityDashProfiles.b5c27c04968c409fc0ed3546575b",
+      "content_type": "application/vnd.linkedin.normalized+json+2.1; charset=UTF-8",
+      "body_length": 1335,
+      "has_urn": false,
+      "has_included": true,
+      "first_500_chars": "{\"data\":{\"data\":{\"$recipeTypes\":[\"com.linkedin.6c74ef9c1fa40b2ad676693e065aca2c\"],\"identityDashProfilesByMemberIdentity\":{\"*elements\":[\"urn:li:fsd_profile:ACoAADMpLxcBGyxGMeprrg2xM6nw2zP0qpS4zGk\"],\"$recipeTypes\":[\"com.linkedin.bb1bbd4b03afda37bcfe63d7d41d6132\"],\"$type\":\"com.linkedin.restli.common.CollectionResponse\"},\"$type\":\"com.linkedin.6c74ef9c1fa40b2ad676693e065aca2c\"},\"extensions\":{\"webMetadata\":{}}},\"meta\":{\"microSchema\":{\"isGraphQL\":true,\"version\":\"2.1\",\"types\":{\"com.linkedin.6c74ef9c1fa4"
+    },
+    {
+      "url": "https://www.linkedin.com/voyager/api/graphql?includeWebMetadata=true&variables=(userMatchHistoryCookie:AQKVJpZh03zYGwAAAZ1ILYlqSlmGvlVv9oJLnMVUoQGf1QBuCear94-CIpUKjnTw24tbNw3A4ZtzTQ)&queryId=voyagerFe",
+      "content_type": "application/vnd.linkedin.normalized+json+2.1; charset=UTF-8",
+      "body_length": 2385,
+      "has_urn": false,
+      "has_included": true,
+      "first_500_chars": "{\"data\":{\"data\":{\"$recipeTypes\":[\"com.linkedin.5f008b29d1786be4745380705c5959ae\"],\"feedDashThirdPartyIdSyncsBySyncUrls\":{\"$recipeTypes\":[\"com.linkedin.a6fbd12aed5273d39998714b214f0533\"],\"elements\":[{\"userMatchHistory\":\"AQLQuQsqEpyKdgAAAZ1ILZM4zvvMOnuSmoe-HTv2MaCPUUUVN-2bDk2Kox2BlF3iUGsvpP9liPwKOEvNV0Q92fnrgnXtMoCNZZmuhv27Vy_BbDEpsvgLf1XIVpzFn8V7OgnXFxze3A1O9RutR58hCH-V17PZMGJqtvBO0_8GhxfnX8eE6PhF11jQ_nuwtYnX-8CT6eKNFiOnIR-4PKAYWDa1bEKjXLhkoDEip80RZrS9XL1wt5PxLfXsbL87c-dlX1w6nHvLayRmIc_RQMrp6nag2"
+    },
+    {
+      "url": "https://www.linkedin.com/voyager/api/graphql?includeWebMetadata=true&variables=()&queryId=voyagerFeedDashGlobalNavs.250bb4d999ff9443357d2c67df7f9067",
+      "content_type": "application/vnd.linkedin.normalized+json+2.1; charset=UTF-8",
+      "body_length": 69237,
+      "has_urn": false,
+      "has_included": true,
+      "first_500_chars": "{\"data\":{\"data\":{\"feedDashGlobalNavs\":{\"logo\":{\"controlName\":\"nav_inbug\",\"logo\":{\"attributes\":[{\"scalingType\":null,\"detailData\":{\"profilePictureWithoutFrame\":null,\"profilePictureWithRingStatus\":null,\"companyLogo\":null,\"icon\":\"IC_APP_LINKEDIN_BUG_COLOR_24DP\",\"systemImage\":null,\"nonEntityGroupLogo\":null,\"vectorImage\":null,\"nonEntityProfessionalEventLogo\":null,\"profilePicture\":null,\"imageUrl\":null,\"professionalEventLogo\":null,\"nonEntityCompanyLogo\":null,\"nonEntitySchoolLogo\":null,\"groupLogo\":null,\""
+    }
+  ]
+}

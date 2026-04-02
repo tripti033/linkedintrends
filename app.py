@@ -31,8 +31,8 @@ st.title("LinkedIn Trends Dashboard")
 st.sidebar.markdown("### Data Controls")
 
 scrape_keyword = st.sidebar.text_input(
-    "Enter keyword to scrape",
-    placeholder="battery energy storage"
+    "Enter keywords to scrape (comma-separated)",
+    placeholder="bess, solar, energy storage"
 )
 
 SCRAPER_URL = os.getenv("SCRAPER_URL", "")
@@ -52,7 +52,7 @@ if st.sidebar.button("Run Scraper"):
             )
             data = res.json()
             if res.ok:
-                st.sidebar.success(f"Scraper started for \"{scrape_keyword.strip()}\"")
+                st.sidebar.success(data.get("message", "Scraper started!"))
             else:
                 st.sidebar.error(data.get("error", "Scraper request failed"))
         except requests.exceptions.ConnectionError:

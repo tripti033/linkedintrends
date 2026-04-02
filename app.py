@@ -1,0 +1,335 @@
+import os
+import sys
+import subprocess
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+import matplotlib.pyplot as plt
+from pymongo import MongoClient
+from datetime import datetime, timezone
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# --- MongoDB connection ---
+MONGO_URI = os.getenv("MONGO_URI", "")
+MONGO_DB = os.getenv("MONGO_DB", "bess_linkedin")
+
+if not MONGO_URI:
+    st.error("MONGO_URI not set. Add it to .env or Streamlit Cloud secrets.")
+    st.stop()
+
+client = MongoClient(MONGO_URI)
+db = client[MONGO_DB]
+posts_collection = db["posts"]
+
+st.set_page_config(page_title="LinkedIn Trends Dashboard", layout="wide")
+st.title("LinkedIn Trends Dashboard")
+
+# --- Sidebar ---
+st.sidebar.markdown("### Data Controls")
+
+scrape_keyword = st.sidebar.text_input(
+    "Enter keyword to scrape",
+    placeholder="battery energy storage"
+)
+
+if st.sidebar.button("Run Scraper"):
+    if not scrape_keyword.strip():
+        st.sidebar.error("Please enter a keyword.")
+    else:
+        st.sidebar.warning("Scraper started... browser may open.")
+        scraper_dir = os.path.dirname(os.path.abspath(__file__))
+        subprocess.Popen(
+            [sys.executable, os.path.join(scraper_dir, "scraper.py"), scrape_keyword.strip()],
+            cwd=scraper_dir,
+        )
+        st.sidebar.success("Scraper running in background!")
+
+if st.sidebar.button("Refresh Data"):
+    st.rerun()
+
+# --- Load data ---
+@st.cache_data(ttl=60)
+def load_posts():
+    data = list(posts_collection.find({}, {"_id": 0}))
+    if not data:
+        return pd.DataFrame()
+    df = pd.DataFrame(data)
+    df["likes"] = df.get("num_likes", 0)
+    df["comments"] = df.get("num_comments", 0)
+    df["reposts"] = df.get("num_reposts", 0)
+    df["total_engagement"] = df["likes"] + df["comments"] + df["reposts"]
+    df["display"] = (
+        df["author_name"].fillna("Unknown")
+        + " - "
+        + df["post_text"].fillna("").str[:80]
+    )
+    return df
+
+
+df = load_posts()
+
+if df.empty:
+    st.warning("No posts in database yet. Run the scraper to collect data.")
+    st.stop()
+
+# --- Tabs ---
+tab1, tab2, tab3 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends"])
+
+# =================== TAB 1: TOP POSTS ===================
+with tab1:
+    st.subheader("Top Engaged Posts")
+
+    # Keyword filter
+    if "keywords" in df.columns:
+        all_keywords = sorted({
+            kw
+            for kws in df["keywords"]
+            for kw in (kws if isinstance(kws, list) else [])
+        })
+        search_term = st.text_input(
+            "Search keyword (e.g. solar, grid, bess)", ""
+        )
+        filtered_df = df.copy()
+        if search_term.strip():
+            search_lower = search_term.lower()
+            filtered_df = filtered_df[
+                filtered_df["keywords"].apply(
+                    lambda kws: any(
+                        search_lower in kw.lower()
+                        for kw in (kws if isinstance(kws, list) else [])
+                    )
+                )
+            ]
+        if all_keywords:
+            st.caption("Available keywords: " + ", ".join(all_keywords[:15]))
+    else:
+        filtered_df = df.copy()
+
+    # Stats cards
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Posts", len(filtered_df))
+    col2.metric("Total Likes", f"{filtered_df['likes'].sum():,}")
+    col3.metric("Total Comments", f"{filtered_df['comments'].sum():,}")
+    col4.metric("Total Reposts", f"{filtered_df['reposts'].sum():,}")
+
+    # Sorted posts
+    df_sorted = filtered_df.sort_values("total_engagement", ascending=False)
+
+    for _, row in df_sorted.iterrows():
+        with st.expander(
+            f"{row['display']} | Likes: {row['likes']}  Comments: {row['comments']}  "
+            f"Reposts: {row['reposts']}  (Total: {row['total_engagement']})"
+        ):
+            post_url = row.get("post_url", "")
+            if post_url and "/feed/update/" in str(post_url):
+                st.markdown(f"[View Post]({post_url})")
+
+            st.markdown(f"**Author:** {row.get('author_name', 'Unknown')}")
+            st.markdown(f"**Headline:** {row.get('author_headline', '')}")
+            st.markdown(f"**Posted:** {row.get('posted_time_raw', 'N/A')}")
+            st.markdown(f"**Post:**\n{row.get('post_text', '')[:500]}")
+
+            # Engagement history chart
+            history = row.get("engagement_history", [])
+            if isinstance(history, list) and len(history) > 1:
+                st.write("**Engagement History:**")
+                first, latest = history[0], history[-1]
+                st.markdown(
+                    f"- Likes: {first.get('num_likes', 0)} → {latest.get('num_likes', 0)}\n"
+                    f"- Comments: {first.get('num_comments', 0)} → {latest.get('num_comments', 0)}\n"
+                    f"- Reposts: {first.get('num_reposts', 0)} → {latest.get('num_reposts', 0)}"
+                )
+                fig, ax = plt.subplots(figsize=(5, 3))
+                dates = list(range(len(history)))
+                for key, label in [("num_likes", "Likes"), ("num_comments", "Comments"), ("num_reposts", "Reposts")]:
+                    ax.plot(dates, [s.get(key, 0) for s in history], marker="o", label=label)
+                ax.set_xlabel("Scrape #")
+                ax.set_title("Engagement Over Time", fontsize=10)
+                ax.legend(fontsize=8)
+                st.pyplot(fig)
+                plt.close(fig)
+            else:
+                st.info("Only one snapshot available yet.")
+
+
+# =================== TAB 2: ENGAGEMENT INSIGHTS ===================
+with tab2:
+    st.subheader("Engagement Insights")
+
+    # --- Top Authors ---
+    st.write("### Top Authors by Engagement")
+    author_stats = (
+        df.groupby("author_name")
+        .agg(
+            post_count=("post_text", "count"),
+            total_likes=("likes", "sum"),
+            total_comments=("comments", "sum"),
+            total_reposts=("reposts", "sum"),
+            avg_likes=("likes", "mean"),
+        )
+        .reset_index()
+    )
+    author_stats["total_engagement"] = (
+        author_stats["total_likes"]
+        + author_stats["total_comments"]
+        + author_stats["total_reposts"]
+    )
+    author_stats = author_stats.sort_values("total_engagement", ascending=False)
+
+    # Pie chart top 10
+    top_authors = author_stats.head(10)
+    fig_authors = px.pie(
+        top_authors,
+        values="total_engagement",
+        names="author_name",
+        hole=0.3,
+        title="Top 10 Authors by Total Engagement",
+    )
+    st.plotly_chart(fig_authors, use_container_width=True)
+
+    # Table
+    st.dataframe(
+        author_stats.head(20)[
+            ["author_name", "post_count", "total_likes", "total_comments", "total_reposts", "avg_likes"]
+        ].rename(columns={
+            "author_name": "Author",
+            "post_count": "Posts",
+            "total_likes": "Likes",
+            "total_comments": "Comments",
+            "total_reposts": "Reposts",
+            "avg_likes": "Avg Likes",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # --- Engagement Distribution ---
+    st.write("### Engagement Distribution")
+    fig_hist = px.histogram(
+        df,
+        x="total_engagement",
+        nbins=20,
+        title="Distribution of Post Engagement Scores",
+        labels={"total_engagement": "Total Engagement"},
+    )
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+    # --- Posts per keyword pie ---
+    if "keywords" in df.columns:
+        st.write("### Posts per Keyword")
+        df_exploded = df.explode("keywords")
+        kw_counts = df_exploded["keywords"].value_counts().head(15).reset_index()
+        kw_counts.columns = ["Keyword", "Posts"]
+        fig_kw_pie = px.pie(
+            kw_counts,
+            values="Posts",
+            names="Keyword",
+            hole=0.4,
+            title="Post Distribution by Keyword",
+        )
+        st.plotly_chart(fig_kw_pie, use_container_width=True)
+
+
+# =================== TAB 3: KEYWORD TRENDS ===================
+with tab3:
+    st.subheader("Keyword Trends")
+
+    if "keywords" not in df.columns:
+        st.info("No keyword data available.")
+    else:
+        df_exploded = df.explode("keywords")
+
+        # --- Keyword engagement bar chart ---
+        st.write("### Keyword Engagement Comparison")
+        kw_engagement = (
+            df_exploded.groupby("keywords")
+            .agg(
+                post_count=("post_text", "count"),
+                total_likes=("likes", "sum"),
+                total_comments=("comments", "sum"),
+                total_engagement=("total_engagement", "sum"),
+                avg_engagement=("total_engagement", "mean"),
+            )
+            .reset_index()
+            .sort_values("total_engagement", ascending=False)
+            .head(15)
+        )
+
+        metric = st.selectbox(
+            "Select metric",
+            ["Total Engagement", "Post Count", "Total Likes", "Average Engagement"],
+        )
+        metric_map = {
+            "Total Engagement": "total_engagement",
+            "Post Count": "post_count",
+            "Total Likes": "total_likes",
+            "Average Engagement": "avg_engagement",
+        }
+        fig_bar = px.bar(
+            kw_engagement,
+            x="keywords",
+            y=metric_map[metric],
+            title=f"Keywords by {metric}",
+            labels={"keywords": "Keyword", metric_map[metric]: metric},
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+        # --- Top posts per keyword ---
+        st.write("### Top Posts for a Keyword")
+        selected_kw = st.selectbox(
+            "Select keyword", df_exploded["keywords"].unique()
+        )
+        if selected_kw:
+            kw_posts = df_exploded[df_exploded["keywords"] == selected_kw].sort_values(
+                "total_engagement", ascending=False
+            ).head(10)
+            kw_posts["short_text"] = kw_posts["post_text"].apply(
+                lambda x: (x[:50] + "...") if isinstance(x, str) and len(x) > 50 else x
+            )
+            fig_kw_posts = px.bar(
+                kw_posts,
+                x="short_text",
+                y="total_engagement",
+                title=f"Top Posts for '{selected_kw}'",
+                labels={"short_text": "Post", "total_engagement": "Engagement"},
+            )
+            fig_kw_posts.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_kw_posts, use_container_width=True)
+
+        # --- Engagement timeline from history ---
+        st.write("### Engagement Growth Over Time")
+        history_data = []
+        for _, row in df.iterrows():
+            history = row.get("engagement_history", [])
+            if isinstance(history, list):
+                for snap in history:
+                    scraped_at = snap.get("scraped_at")
+                    if scraped_at:
+                        history_data.append({
+                            "date": scraped_at.strftime("%Y-%m-%d") if hasattr(scraped_at, "strftime") else str(scraped_at)[:10],
+                            "likes": snap.get("num_likes", 0),
+                            "comments": snap.get("num_comments", 0),
+                            "reposts": snap.get("num_reposts", 0),
+                        })
+
+        if history_data:
+            df_timeline = pd.DataFrame(history_data)
+            df_timeline = df_timeline.groupby("date").sum().reset_index().sort_values("date")
+            fig_timeline = px.line(
+                df_timeline,
+                x="date",
+                y=["likes", "comments", "reposts"],
+                markers=True,
+                title="Total Engagement Across Scrape Sessions",
+                labels={"value": "Count", "date": "Date"},
+            )
+            st.plotly_chart(fig_timeline, use_container_width=True)
+        else:
+            st.info("Run the scraper multiple times to see engagement trends over time.")
+
+
+# --- Footer ---
+st.markdown("---")
+st.caption("Data collected by LinkedIn Trends Scraper")

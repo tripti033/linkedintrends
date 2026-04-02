@@ -34,8 +34,12 @@ scrape_keyword = st.sidebar.text_input(
     placeholder="battery energy storage"
 )
 
+IS_CLOUD = os.getenv("STREAMLIT_SHARING_MODE") or os.path.exists("/mount/src")
+
 if st.sidebar.button("Run Scraper"):
-    if not scrape_keyword.strip():
+    if IS_CLOUD:
+        st.sidebar.error("Scraper only works locally (needs a browser). Run it on your machine.")
+    elif not scrape_keyword.strip():
         st.sidebar.error("Please enter a keyword.")
     else:
         st.sidebar.warning("Scraper started... browser may open.")
@@ -187,7 +191,7 @@ with tab2:
         hole=0.3,
         title="Top 10 Authors by Total Engagement",
     )
-    st.plotly_chart(fig_authors, use_container_width=True)
+    st.plotly_chart(fig_authors, width="stretch")
 
     # Table
     st.dataframe(
@@ -201,7 +205,7 @@ with tab2:
             "total_reposts": "Reposts",
             "avg_likes": "Avg Likes",
         }),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -214,7 +218,7 @@ with tab2:
         title="Distribution of Post Engagement Scores",
         labels={"total_engagement": "Total Engagement"},
     )
-    st.plotly_chart(fig_hist, use_container_width=True)
+    st.plotly_chart(fig_hist, width="stretch")
 
     # --- Posts per keyword pie ---
     if "keywords" in df.columns:
@@ -229,7 +233,7 @@ with tab2:
             hole=0.4,
             title="Post Distribution by Keyword",
         )
-        st.plotly_chart(fig_kw_pie, use_container_width=True)
+        st.plotly_chart(fig_kw_pie, width="stretch")
 
 
 # =================== TAB 3: KEYWORD TRENDS ===================
@@ -274,7 +278,7 @@ with tab3:
             title=f"Keywords by {metric}",
             labels={"keywords": "Keyword", metric_map[metric]: metric},
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width="stretch")
 
         # --- Top posts per keyword ---
         st.write("### Top Posts for a Keyword")
@@ -296,7 +300,7 @@ with tab3:
                 labels={"short_text": "Post", "total_engagement": "Engagement"},
             )
             fig_kw_posts.update_xaxes(tickangle=45)
-            st.plotly_chart(fig_kw_posts, use_container_width=True)
+            st.plotly_chart(fig_kw_posts, width="stretch")
 
         # --- Engagement timeline from history ---
         st.write("### Engagement Growth Over Time")
@@ -325,7 +329,7 @@ with tab3:
                 title="Total Engagement Across Scrape Sessions",
                 labels={"value": "Count", "date": "Date"},
             )
-            st.plotly_chart(fig_timeline, use_container_width=True)
+            st.plotly_chart(fig_timeline, width="stretch")
         else:
             st.info("Run the scraper multiple times to see engagement trends over time.")
 

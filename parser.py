@@ -215,9 +215,26 @@ EXTRACT_ALL_POSTS_JS = r"""
         // Primary: expandable text box (LinkedIn SDUI standard)
         const expandable = post.querySelector('[data-testid="expandable-text-box"]');
         if (expandable) {
-            result.post_text = expandable.textContent.trim()
+            // Get the full container text — after "see more" has been clicked,
+            // the hidden content becomes visible
+            const fullTextEl = expandable.querySelector('.break-words') || expandable;
+            result.post_text = fullTextEl.textContent.trim()
                 .replace(/…\s*more\s*$/, '')
-                .substring(0, 3000);
+                .replace(/\s*see less\s*$/i, '')
+                .substring(0, 5000);
+        }
+
+        // Also try aria-expanded containers (LinkedIn reveals full text here)
+        if (!result.post_text || result.post_text.length < 50) {
+            const expanded = post.querySelector('[aria-expanded="true"] .break-words');
+            if (expanded) {
+                const text = expanded.textContent.trim()
+                    .replace(/\s*see less\s*$/i, '')
+                    .substring(0, 5000);
+                if (text.length > (result.post_text || '').length) {
+                    result.post_text = text;
+                }
+            }
         }
 
         // Fallback: longest text element
@@ -233,7 +250,9 @@ EXTRACT_ALL_POSTS_JS = r"""
                 longest = text;
             }
             if (longest.length > (result.post_text || '').length) {
-                result.post_text = longest.replace(/…\s*more\s*$/, '').substring(0, 3000);
+                result.post_text = longest.replace(/…\s*more\s*$/, '')
+                    .replace(/\s*see less\s*$/i, '')
+                    .substring(0, 5000);
             }
         }
 

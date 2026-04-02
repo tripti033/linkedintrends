@@ -175,6 +175,63 @@ def _merge_api_into_dom(
     return dom_posts
 
 
+async def expand_all_posts(page: Page):
+    """Click all 'see more' / '...more' buttons to expand truncated post text."""
+    try:
+        expanded = await page.evaluate(r"""
+        () => {
+            let count = 0;
+            // LinkedIn uses various selectors for the "more" button
+            const selectors = [
+                'button.see-more-less-button',
+                'button[aria-label*="see more"]',
+                'button[aria-label*="See more"]',
+                'button.feed-shared-inline-show-more-text',
+                '[data-testid="expandable-text-box"] button',
+            ];
+
+            for (const sel of selectors) {
+                const buttons = document.querySelectorAll(sel);
+                for (const btn of buttons) {
+                    const text = (btn.textContent || '').trim().toLowerCase();
+                    if (text.includes('more') || text === '…more' || text === '...more') {
+                        btn.click();
+                        count++;
+                    }
+                }
+            }
+
+            // Also find by text content — catches "…more" buttons without specific classes
+            const allButtons = document.querySelectorAll('button');
+            for (const btn of allButtons) {
+                const text = (btn.textContent || '').trim();
+                if ((text === '…more' || text === '...more' || text.toLowerCase() === 'see more')
+                    && btn.offsetParent !== null) {
+                    btn.click();
+                    count++;
+                }
+            }
+
+            // Also handle span-based "more" triggers
+            const spans = document.querySelectorAll('span[role="button"]');
+            for (const span of spans) {
+                const text = (span.textContent || '').trim();
+                if (text === '…more' || text === '...more' || text.toLowerCase() === 'see more') {
+                    span.click();
+                    count++;
+                }
+            }
+
+            return count;
+        }
+        """)
+        if expanded > 0:
+            print(f"[SCRAPER] Expanded {expanded} truncated posts")
+            await asyncio.sleep(0.5)  # brief wait for text to render
+    except Exception as e:
+        print(f"[SCRAPER] Expand posts error (non-fatal): {e}")
+
+
 async def scroll_and_collect(
     page: Page,
     keyword: str,
@@ -187,6 +244,9 @@ async def scroll_and_collect(
 
     for scroll_num in range(1, scroll_count + 1):
         print(f"[SCRAPER] Scroll {scroll_num}/{scroll_count}...")
+
+        # Click all "...more" / "see more" buttons to expand truncated posts
+        await expand_all_posts(page)
 
         page_posts = await extract_all_posts(page, keyword)
 

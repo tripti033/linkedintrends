@@ -236,6 +236,81 @@ async def scroll_and_collect(
     return all_posts
 
 
+async def enrich_post_urls(page: Page, posts: list[PostData]) -> list[PostData]:
+    """
+    Try to get URLs for posts missing them by clicking the three-dot menu
+    and extracting the 'Copy link to post' option which contains the URL.
+    """
+    missing = [i for i, p in enumerate(posts) if not p.post_url or "/feed/update/" not in p.post_url]
+    if not missing:
+        return posts
+
+    print(f"\n[ENRICH] Attempting to find URLs for {len(missing)} posts without links...")
+
+    # Use JavaScript to scan all dropdown menus, share buttons, and copy-link elements
+    # that might contain post URLs after they've been loaded
+    enriched_urls = await page.evaluate(r"""
+    () => {
+        const results = {};
+        // Scan all elements for post URLs in href/data attributes
+        const allLinks = document.querySelectorAll('a[href*="/feed/update/"]');
+        for (const link of allLinks) {
+            const href = link.getAttribute('href') || '';
+            const m = href.match(/\/feed\/update\/(urn:li:(?:activity|ugcPost):\d{15,25})/);
+            if (m) {
+                results[m[1]] = 'https://www.linkedin.com/feed/update/' + m[1] + '/';
+            }
+        }
+
+        // Also scan for data attributes containing activity URNs
+        const allEls = document.querySelectorAll('[data-urn], [data-activity-urn]');
+        for (const el of allEls) {
+            for (const attr of el.attributes) {
+                const val = attr.value || '';
+                const m = val.match(/(urn:li:(?:activity|ugcPost):\d{15,25})/);
+                if (m && !results[m[1]]) {
+                    results[m[1]] = 'https://www.linkedin.com/feed/update/' + m[1] + '/';
+                }
+            }
+        }
+
+        // Scan clipboard copy buttons that might have post URLs
+        const copyBtns = document.querySelectorAll('[data-copy-text], [data-clipboard-text]');
+        for (const btn of copyBtns) {
+            const text = btn.getAttribute('data-copy-text') || btn.getAttribute('data-clipboard-text') || '';
+            if (text.includes('/feed/update/')) {
+                const m = text.match(/(urn:li:(?:activity|ugcPost):\d{15,25})/);
+                if (m) results[m[1]] = text;
+            }
+        }
+
+        return results;
+    }
+    """)
+
+    # Match enriched URLs back to posts
+    enriched_count = 0
+    for i in missing:
+        post = posts[i]
+        # Check if we found a URL matching this post's hash-based ID
+        if post.post_id and post.post_id.startswith("urn:li:"):
+            url = enriched_urls.get(post.post_id)
+            if url:
+                post.post_url = url
+                enriched_count += 1
+        else:
+            # Try matching by checking all found URNs against post text
+            for urn, url in enriched_urls.items():
+                if urn not in {p.post_id for p in posts}:
+                    post.post_id = urn
+                    post.post_url = url
+                    enriched_count += 1
+                    break
+
+    print(f"[ENRICH] Found {enriched_count} additional URLs")
+    return posts
+
+
 async def run_scraper(
     keyword: str,
     scroll_count: int,
@@ -288,6 +363,9 @@ async def run_scraper(
                     f"{len(interceptor.captured_urns)} API URNs"
                 )
                 posts = _merge_api_into_dom(posts, interceptor)
+
+                # Try to find URLs for posts that are still missing them
+                posts = await enrich_post_urls(page, posts)
 
                 log_path = save_posts_to_log(posts, keyword)
                 print_summary(posts, keyword)

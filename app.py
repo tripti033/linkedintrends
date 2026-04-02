@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import requests
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -34,14 +35,32 @@ scrape_keyword = st.sidebar.text_input(
     placeholder="battery energy storage"
 )
 
-IS_CLOUD = os.getenv("STREAMLIT_SHARING_MODE") or os.path.exists("/mount/src")
+SCRAPER_URL = os.getenv("SCRAPER_URL", "")
+SCRAPER_TOKEN = os.getenv("SCRAPER_TOKEN", "")
 
 if st.sidebar.button("Run Scraper"):
-    if IS_CLOUD:
-        st.sidebar.error("Scraper only works locally (needs a browser). Run it on your machine.")
-    elif not scrape_keyword.strip():
+    if not scrape_keyword.strip():
         st.sidebar.error("Please enter a keyword.")
+    elif SCRAPER_URL:
+        # Remote: call local machine via ngrok tunnel
+        try:
+            res = requests.post(
+                f"{SCRAPER_URL}/scrape",
+                json={"keyword": scrape_keyword.strip()},
+                headers={"Authorization": f"Bearer {SCRAPER_TOKEN}"},
+                timeout=10,
+            )
+            data = res.json()
+            if res.ok:
+                st.sidebar.success(f"Scraper started for \"{scrape_keyword.strip()}\"")
+            else:
+                st.sidebar.error(data.get("error", "Scraper request failed"))
+        except requests.exceptions.ConnectionError:
+            st.sidebar.error("Cannot reach local server. Make sure local_server.py and ngrok are running.")
+        except Exception as e:
+            st.sidebar.error(f"Error: {e}")
     else:
+        # Local: run scraper directly
         st.sidebar.warning("Scraper started... browser may open.")
         scraper_dir = os.path.dirname(os.path.abspath(__file__))
         subprocess.Popen(

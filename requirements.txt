@@ -1,3 +1,9 @@
 playwright>=1.40.0
 beautifulsoup4>=4.12.0
 python-dotenv>=1.0.0
+pymongo>=4.6.0
+dnspython>=2.4.0
+streamlit>=1.30.0
+plotly>=5.18.0
+pandas>=2.0.0
+matplotlib>=3.8.0

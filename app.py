@@ -72,6 +72,46 @@ if st.sidebar.button("Run Scraper"):
 if st.sidebar.button("Refresh Data"):
     st.rerun()
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Danger Zone")
+
+delete_option = st.sidebar.selectbox(
+    "Delete data",
+    ["Select...", "All posts", "By keyword"],
+    key="delete_option",
+)
+
+if delete_option == "By keyword":
+    all_keywords = posts_collection.distinct("keywords")
+    if all_keywords:
+        delete_kw = st.sidebar.selectbox("Select keyword to delete", all_keywords, key="delete_kw")
+    else:
+        delete_kw = None
+        st.sidebar.info("No keywords found.")
+
+if delete_option != "Select...":
+    confirm = st.sidebar.checkbox("I confirm I want to delete this data", key="delete_confirm")
+    if st.sidebar.button("Delete", type="primary"):
+        if not confirm:
+            st.sidebar.error("Please confirm first.")
+        elif delete_option == "All posts":
+            count = posts_collection.count_documents({})
+            posts_collection.delete_many({})
+            st.sidebar.success(f"Deleted all {count} posts.")
+            st.rerun()
+        elif delete_option == "By keyword" and delete_kw:
+            # Remove keyword from posts that have multiple keywords
+            posts_collection.update_many(
+                {"keywords": delete_kw, "keywords.1": {"$exists": True}},
+                {"$pull": {"keywords": delete_kw}},
+            )
+            # Delete posts where this was the only keyword
+            result = posts_collection.delete_many({"keywords": {"$size": 0}})
+            remaining = posts_collection.delete_many({"keywords": delete_kw})
+            total = result.deleted_count + remaining.deleted_count
+            st.sidebar.success(f"Deleted {total} posts for \"{delete_kw}\".")
+            st.rerun()
+
 # --- Load data ---
 @st.cache_data(ttl=60)
 def load_posts():

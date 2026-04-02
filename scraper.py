@@ -178,58 +178,132 @@ def _merge_api_into_dom(
 async def expand_all_posts(page: Page):
     """Click all 'see more' / '...more' buttons to expand truncated post text."""
     try:
-        expanded = await page.evaluate(r"""
-        () => {
-            let count = 0;
-            // LinkedIn uses various selectors for the "more" button
-            const selectors = [
-                'button.see-more-less-button',
-                'button[aria-label*="see more"]',
-                'button[aria-label*="See more"]',
-                'button.feed-shared-inline-show-more-text',
-                '[data-testid="expandable-text-box"] button',
-            ];
+        # Use Playwright locator to find and click all "more" buttons reliably
+        more_buttons = page.locator('button:text("…more"), button:text("...more"), button:text("see more")')
+        count = await more_buttons.count()
+        clicked = 0
+        for i in range(count):
+            try:
+                btn = more_buttons.nth(i)
+                if await btn.is_visible():
+                    await btn.click(timeout=1000)
+                    clicked += 1
+            except Exception:
+                pass
 
-            for (const sel of selectors) {
-                const buttons = document.querySelectorAll(sel);
-                for (const btn of buttons) {
-                    const text = (btn.textContent || '').trim().toLowerCase();
-                    if (text.includes('more') || text === '…more' || text === '...more') {
-                        btn.click();
-                        count++;
-                    }
-                }
-            }
+        # Also try span-based "more" triggers
+        more_spans = page.locator('span[role="button"]:text("…more"), span[role="button"]:text("see more")')
+        span_count = await more_spans.count()
+        for i in range(span_count):
+            try:
+                span = more_spans.nth(i)
+                if await span.is_visible():
+                    await span.click(timeout=1000)
+                    clicked += 1
+            except Exception:
+                pass
 
-            // Also find by text content — catches "…more" buttons without specific classes
-            const allButtons = document.querySelectorAll('button');
-            for (const btn of allButtons) {
-                const text = (btn.textContent || '').trim();
-                if ((text === '…more' || text === '...more' || text.toLowerCase() === 'see more')
-                    && btn.offsetParent !== null) {
-                    btn.click();
-                    count++;
-                }
-            }
-
-            // Also handle span-based "more" triggers
-            const spans = document.querySelectorAll('span[role="button"]');
-            for (const span of spans) {
-                const text = (span.textContent || '').trim();
-                if (text === '…more' || text === '...more' || text.toLowerCase() === 'see more') {
-                    span.click();
-                    count++;
-                }
-            }
-
-            return count;
-        }
-        """)
-        if expanded > 0:
-            print(f"[SCRAPER] Expanded {expanded} truncated posts")
-            await asyncio.sleep(0.5)  # brief wait for text to render
+        if clicked > 0:
+            print(f"[SCRAPER] Expanded {clicked} truncated posts")
+            await asyncio.sleep(1)  # wait for full text to render
     except Exception as e:
         print(f"[SCRAPER] Expand posts error (non-fatal): {e}")
+
+
+async def extract_post_urls_via_menu(page: Page, posts: list[PostData]) -> list[PostData]:
+    """
+    Click the three-dot menu on each post missing a URL,
+    then click 'Copy link to post' to capture the URL from the clipboard.
+    """
+    missing = [i for i, p in enumerate(posts) if not p.post_url or "/feed/update/" not in p.post_url]
+    if not missing:
+        return posts
+
+    print(f"\n[ENRICH] Clicking three-dot menus for {len(missing)} posts without URLs...")
+    enriched = 0
+
+    # Find all three-dot menu buttons on the page
+    menu_buttons = page.locator('[role="listitem"] button[aria-label*="More actions"], [role="listitem"] button[aria-label*="Open control menu"]')
+    menu_count = await menu_buttons.count()
+
+    for idx in missing:
+        if idx >= menu_count:
+            break
+
+        try:
+            menu_btn = menu_buttons.nth(idx)
+            if not await menu_btn.is_visible():
+                continue
+
+            # Click the three-dot menu
+            await menu_btn.click(timeout=2000)
+            await asyncio.sleep(0.5)
+
+            # Look for "Copy link to post" option
+            copy_link = page.locator('div[role="menu"] span:text("Copy link to post"), div[role="menu"] span:text("Copy link")')
+            if await copy_link.count() > 0:
+                # Before clicking, get the href from the menu item's parent
+                link_url = await page.evaluate(r"""
+                () => {
+                    const items = document.querySelectorAll('div[role="menu"] [role="menuitem"]');
+                    for (const item of items) {
+                        const text = (item.textContent || '').trim();
+                        if (text.includes('Copy link')) {
+                            // Check for data attributes with URL
+                            const href = item.getAttribute('href') || '';
+                            if (href.includes('/feed/update/')) return href;
+
+                            // Check onclick or data attrs
+                            for (const attr of item.attributes) {
+                                if (attr.value.includes('/feed/update/')) return attr.value;
+                                const m = attr.value.match(/urn:li:(?:activity|ugcPost):\d{15,25}/);
+                                if (m) return 'https://www.linkedin.com/feed/update/' + m[0] + '/';
+                            }
+
+                            // Check parent element attributes
+                            const parent = item.closest('[data-urn], [data-control-urn]');
+                            if (parent) {
+                                for (const attr of parent.attributes) {
+                                    const m = attr.value.match(/urn:li:(?:activity|ugcPost):\d{15,25}/);
+                                    if (m) return 'https://www.linkedin.com/feed/update/' + m[0] + '/';
+                                }
+                            }
+                        }
+                    }
+
+                    // Also scan the menu itself for URNs
+                    const menu = document.querySelector('div[role="menu"]');
+                    if (menu) {
+                        const html = menu.innerHTML || '';
+                        const m = html.match(/urn:li:(?:activity|ugcPost):\d{15,25}/);
+                        if (m) return 'https://www.linkedin.com/feed/update/' + m[0] + '/';
+                    }
+                    return null;
+                }
+                """)
+
+                if link_url and '/feed/update/' in link_url:
+                    post = posts[idx]
+                    post.post_url = link_url
+                    # Also extract post_id from URL
+                    urn_match = re.search(r'(urn:li:(?:activity|ugcPost):\d{15,25})', link_url)
+                    if urn_match:
+                        post.post_id = urn_match.group(1)
+                    enriched += 1
+
+            # Close the menu by pressing Escape
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.3)
+
+        except Exception:
+            # Close any open menu
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+    print(f"[ENRICH] Found {enriched} URLs via three-dot menus")
+    return posts
 
 
 async def scroll_and_collect(
@@ -426,6 +500,7 @@ async def run_scraper(
 
                 # Try to find URLs for posts that are still missing them
                 posts = await enrich_post_urls(page, posts)
+                posts = await extract_post_urls_via_menu(page, posts)
 
                 log_path = save_posts_to_log(posts, keyword)
                 print_summary(posts, keyword)

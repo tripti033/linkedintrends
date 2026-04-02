@@ -85,18 +85,25 @@ def upsert_posts(posts: list[dict], keyword: str) -> dict:
                 "$setOnInsert": {
                     "post_id": pid,
                     "author_name": post.get("author_name", ""),
+                    "author_headline": post.get("author_headline", ""),
+                    "author_profile_url": post.get("author_profile_url", ""),
                     "post_text": post.get("post_text", ""),
                     "media_type": post.get("media_type", "text"),
                     "first_scraped_at": now,
                     "posted_time_raw": post.get("posted_time", ""),
                 },
                 "$set": {
+                    # Always update with latest values
+                    "post_url": post.get("post_url", ""),
                     "num_likes": post.get("num_likes", 0),
                     "num_comments": post.get("num_comments", 0),
                     "num_reposts": post.get("num_reposts", 0),
                     "last_scraped_at": now,
-                    "author_headline": post.get("author_headline", ""),
-                    "author_profile_url": post.get("author_profile_url", ""),
+                    # Update headline/profile if we got better data this run
+                    **({"author_headline": post["author_headline"]}
+                       if post.get("author_headline") else {}),
+                    **({"author_profile_url": post["author_profile_url"]}
+                       if post.get("author_profile_url") else {}),
                     **({"post_url": post["post_url"]}
                        if post.get("post_url") and "/feed/update/" in post.get("post_url", "")
                        else {}),

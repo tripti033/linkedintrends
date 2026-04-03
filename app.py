@@ -126,8 +126,9 @@ def load_posts():
     df["comments"] = df.get("num_comments", 0)
     df["reposts"] = df.get("num_reposts", 0)
     df["total_engagement"] = df["likes"] + df["comments"] + df["reposts"]
+    df["author_name"] = df["author_name"].fillna("").replace("", "Unknown")
     df["display"] = (
-        df["author_name"].fillna("Unknown")
+        df["author_name"]
         + " - "
         + df["post_text"].fillna("").str[:80]
     )

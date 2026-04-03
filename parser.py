@@ -138,11 +138,13 @@ EXTRACT_ALL_POSTS_JS = r"""
         if (fullText.length < 50) continue;
         if (fullText.startsWith('Are these results helpful')) continue;
 
-        // Must look like a feed post
+        // Must look like a feed post — check multiple signals
         const hasFollow = post.querySelector('button[aria-label*="Follow"]');
+        const hasDataUrn = post.hasAttribute('data-urn');
         const hasFeedPost = fullText.includes('Feed post');
         const hasTime = /\d+[mhdwMy]\s*[•·]/.test(fullText) || /\b\d+[mhdwMy]\b/.test(fullText);
-        if (!hasFollow && !hasFeedPost && !hasTime) continue;
+        const hasEngagement = fullText.includes('reaction') || fullText.includes('comment') || fullText.includes('repost');
+        if (!hasFollow && !hasDataUrn && !hasFeedPost && !hasTime && !hasEngagement) continue;
 
         const result = {
             author_name: '', author_headline: '', author_profile_url: '',
@@ -151,10 +153,10 @@ EXTRACT_ALL_POSTS_JS = r"""
         };
 
         // ==== AUTHOR NAME ====
-        // Strategy 1: Follow button aria-label (most reliable)
-        const followBtn = post.querySelector('button[aria-label*="Follow"]');
-        if (followBtn) {
-            const label = followBtn.getAttribute('aria-label') || '';
+        // Strategy 1: FIRST Follow button aria-label (for reposts, use the first one = original author)
+        const followBtns = post.querySelectorAll('button[aria-label*="Follow"]');
+        if (followBtns.length > 0) {
+            const label = followBtns[0].getAttribute('aria-label') || '';
             const m = label.match(/Follow\s+(.+)/i);
             if (m) result.author_name = m[1].trim();
         }
@@ -182,8 +184,8 @@ EXTRACT_ALL_POSTS_JS = r"""
 
         // Strategy 3: First profile link text (clean up doubled names)
         if (!result.author_name) {
-            const profileLink = post.querySelector('a[href*="/in/"], a[href*="/company/"]');
-            if (profileLink) {
+            const profileLinks = post.querySelectorAll('a[href*="/in/"], a[href*="/company/"]');
+            for (const profileLink of profileLinks) {
                 let name = profileLink.textContent.trim().split('\n')[0].trim();
                 // LinkedIn sometimes doubles the name: "Robin RainaRobin Raina"
                 if (name.length > 4) {
@@ -193,9 +195,19 @@ EXTRACT_ALL_POSTS_JS = r"""
                     }
                 }
                 if (name && name.length > 1 && name.length < 80
-                    && name !== 'Follow' && name !== 'View') {
+                    && !['Follow', 'View', 'Following'].includes(name)) {
                     result.author_name = name;
+                    break;
                 }
+            }
+        }
+
+        // Strategy 4: "reposted this" pattern — get reposter name from context
+        if (!result.author_name) {
+            const text = fullText.substring(0, 200);
+            const repostMatch = text.match(/^(.+?)\s+reposted this/i);
+            if (repostMatch) {
+                result.author_name = repostMatch[1].trim();
             }
         }
 

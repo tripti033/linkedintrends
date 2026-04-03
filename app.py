@@ -642,6 +642,7 @@ with tab4:
 with tab5:
     st.subheader("Content Strategy for Ingro Energy")
     st.caption("Data-driven insights to help your content team create high-engagement posts")
+    st.info(f"Based on **{len(df)} scraped posts** across **{len(df['keywords'].explode().unique()) if 'keywords' in df.columns else 0} keywords**. Scrape more keywords to improve insights.")
 
     import re as _re
     from collections import Counter
@@ -850,13 +851,20 @@ with tab5:
             st.caption("Copy these hashtags for your next LinkedIn post")
 
             et_df = pd.DataFrame(energy_tags[:15])
-            fig_et = px.scatter(
-                et_df, x="uses", y="avg_eng", text="tag",
-                title="Hashtag Performance (size = frequency)",
-                labels={"uses": "Times Used", "avg_eng": "Avg Engagement"},
-                size="uses",
+            # Score = avg_engagement * log(uses+1) — balances quality and popularity
+            import math
+            et_df["score"] = et_df.apply(lambda r: r["avg_eng"] * math.log2(r["uses"] + 1), axis=1)
+            et_df = et_df.sort_values("score", ascending=True)  # horizontal bar, ascending for bottom-up
+
+            fig_et = px.bar(
+                et_df, x="score", y="tag", orientation="h",
+                title="Hashtag Score (engagement x frequency)",
+                labels={"score": "Score", "tag": "Hashtag"},
+                hover_data=["uses", "avg_eng"],
+                color="avg_eng",
+                color_continuous_scale="Blues",
             )
-            fig_et.update_traces(textposition="top center")
+            fig_et.update_layout(yaxis=dict(tickfont=dict(size=12)), height=400)
             st.plotly_chart(fig_et, width="stretch")
 
 

@@ -473,72 +473,111 @@ with tab3:
 
 
 # =================== TAB 4: AUTHOR ANALYSIS ===================
+author_collection = db["author_posts"]
+
+@st.cache_data(ttl=60)
+def load_author_posts():
+    data = list(author_collection.find({}, {"_id": 0}))
+    if not data:
+        return pd.DataFrame()
+    adf = pd.DataFrame(data)
+    adf["likes"] = adf.get("num_likes", 0)
+    adf["comments"] = adf.get("num_comments", 0)
+    adf["reposts"] = adf.get("num_reposts", 0)
+    adf["total_engagement"] = adf["likes"] + adf["comments"] + adf["reposts"]
+    adf["author_name"] = adf["author_name"].fillna("").replace("", "Unknown")
+    return adf
+
 with tab4:
     st.subheader("Author Analysis")
 
     ac1, ac2 = st.columns(2)
     with ac1:
-        author_search = st.text_input("Author name", placeholder="e.g. Niraj Agrawal")
+        author_search = st.text_input("Author name", placeholder="e.g. Tripti Verma")
     with ac2:
-        company_search = st.text_input("Company (optional)", placeholder="e.g. Tesla")
+        company_search = st.text_input("Company (optional)", placeholder="e.g. Ingro Energy")
+
+    asc1, asc2 = st.columns(2)
+    with asc1:
+        author_profile_url = st.text_input("LinkedIn profile URL (optional)", placeholder="e.g. https://www.linkedin.com/in/username")
+    with asc2:
+        author_scrolls = st.number_input("Scroll count", min_value=1, max_value=50, value=10, key="author_scrolls")
 
     # Scrape author's posts button
     if st.button("Scrape Author Posts"):
-        if not author_search.strip():
-            st.error("Please enter an author name.")
+        if not author_search.strip() and not author_profile_url.strip():
+            st.error("Please enter an author name or profile URL.")
         else:
-            search_query = author_search.strip()
-            if company_search.strip():
-                search_query += f" {company_search.strip()}"
             try:
                 if SCRAPER_URL:
                     res = requests.post(
-                        f"{SCRAPER_URL}/scrape",
-                        json={"keyword": search_query, "scrolls": 10, "sort": "date_posted", "headless": True},
+                        f"{SCRAPER_URL}/scrape/author",
+                        json={
+                            "name": author_search.strip(),
+                            "company": company_search.strip(),
+                            "profile_url": author_profile_url.strip(),
+                            "scrolls": author_scrolls,
+                        },
                         headers={"Authorization": f"Bearer {SCRAPER_TOKEN}"},
                         timeout=10,
                     )
-                    if res.ok:
-                        st.success(f"Scraping posts for \"{search_query}\"... Refresh in ~2 min.")
+                    if "text/html" in res.headers.get("content-type", ""):
+                        st.error("Local server is down. Start local_server.py on your machine.")
+                    elif res.ok:
+                        st.success(res.json().get("message", "Scraping started!") + " Refresh in ~2 min.")
                     else:
-                        st.error("Failed to start scraper.")
+                        st.error(res.json().get("error", "Failed"))
                 else:
                     scraper_dir = os.path.dirname(os.path.abspath(__file__))
-                    subprocess.Popen(
-                        [sys.executable, os.path.join(scraper_dir, "scraper.py"), search_query,
-                         "--scrolls", "10", "--sort", "date_posted"],
-                        cwd=scraper_dir,
-                    )
-                    st.success(f"Scraping posts for \"{search_query}\"... Refresh in ~2 min.")
+                    cmd = [sys.executable, os.path.join(scraper_dir, "author_scraper.py")]
+                    if author_profile_url.strip():
+                        cmd.append(author_profile_url.strip())
+                    else:
+                        cmd.append(author_search.strip())
+                        if company_search.strip():
+                            cmd.extend(["--company", company_search.strip()])
+                    cmd.extend(["--scrolls", str(author_scrolls), "--headless"])
+                    subprocess.Popen(cmd, cwd=scraper_dir)
+                    st.success("Scraping author posts... Refresh in ~2 min.")
+            except requests.exceptions.ConnectionError:
+                st.error("Cannot reach local server. Make sure local_server.py and ngrok are running.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
     st.markdown("---")
 
-    # Filter existing data by author
-    if author_search.strip():
-        search_lower = author_search.strip().lower()
-        author_df = df[df["author_name"].str.lower().str.contains(search_lower, na=False)]
-        if company_search.strip():
-            company_lower = company_search.strip().lower()
-            # Also check author_headline for company
-            if "author_headline" in author_df.columns:
-                author_df = author_df[
-                    author_df["author_headline"].fillna("").str.lower().str.contains(company_lower, na=False)
-                    | author_df["author_name"].str.lower().str.contains(company_lower, na=False)
-                ]
-    else:
-        # Show author selection from existing data
-        authors = sorted(df["author_name"].dropna().unique())
-        selected = st.selectbox("Or select from existing authors", ["Select..."] + authors, key="author_analysis_select")
-        if selected != "Select...":
-            author_df = df[df["author_name"] == selected]
+    # Load author posts from separate collection
+    author_posts_df = load_author_posts()
+
+    # Determine which data to show
+    author_df = pd.DataFrame()
+
+    if not author_posts_df.empty:
+        existing_authors = sorted(author_posts_df["author_name"].unique())
+
+        if author_search.strip():
+            search_lower = author_search.strip().lower()
+            author_df = author_posts_df[
+                author_posts_df["author_name"].str.lower().str.contains(search_lower, na=False)
+            ]
         else:
-            author_df = pd.DataFrame()
+            selected = st.selectbox(
+                "Or select from scraped authors",
+                ["Select..."] + existing_authors,
+                key="author_analysis_select",
+            )
+            if selected != "Select...":
+                author_df = author_posts_df[author_posts_df["author_name"] == selected]
+    elif not author_search.strip():
+        st.info("No author data yet. Enter a name and click 'Scrape Author Posts'.")
 
     if not author_df.empty:
         author_name = author_df["author_name"].iloc[0]
-        st.markdown(f"### {author_name}")
+        profile = author_df["author_profile_url"].iloc[0] if "author_profile_url" in author_df.columns else ""
+        if profile:
+            st.markdown(f"### [{author_name}]({profile})")
+        else:
+            st.markdown(f"### {author_name}")
 
         # --- Stats ---
         mc1, mc2, mc3, mc4, mc5 = st.columns(5)
@@ -566,35 +605,14 @@ with tab4:
         fig_eng.update_xaxes(tickangle=45)
         st.plotly_chart(fig_eng, width="stretch")
 
-        # --- Keywords / Topics ---
-        if "keywords" in author_df.columns:
-            st.write("### Topics / Keywords")
-            kw_list = []
-            for kws in author_df["keywords"]:
-                if isinstance(kws, list):
-                    kw_list.extend(kws)
-            if kw_list:
-                from collections import Counter
-                kw_counts = Counter(kw_list).most_common(10)
-                kw_df = pd.DataFrame(kw_counts, columns=["Keyword", "Posts"])
-                fig_kw = px.pie(kw_df, values="Posts", names="Keyword", hole=0.4,
-                                title=f"Keywords — {author_name}")
-                st.plotly_chart(fig_kw, width="stretch")
-
-        # --- Post frequency by time ---
-        st.write("### Post Recency")
-        time_df = author_df[["posted_time_raw", "total_engagement"]].copy()
-        time_df = time_df[time_df["posted_time_raw"].fillna("") != ""]
-        if not time_df.empty:
-            fig_time = px.scatter(
-                time_df,
-                x="posted_time_raw",
-                y="total_engagement",
-                size="total_engagement",
-                title=f"Post Timing vs Engagement — {author_name}",
-                labels={"posted_time_raw": "Posted", "total_engagement": "Engagement"},
-            )
-            st.plotly_chart(fig_time, width="stretch")
+        # --- Media type breakdown ---
+        if "media_type" in author_df.columns:
+            st.write("### Content Types")
+            media_counts = author_df["media_type"].value_counts().reset_index()
+            media_counts.columns = ["Type", "Count"]
+            fig_media = px.pie(media_counts, values="Count", names="Type", hole=0.4,
+                               title=f"Content Types — {author_name}")
+            st.plotly_chart(fig_media, width="stretch")
 
         # --- Post list ---
         st.write("### All Posts")
@@ -610,7 +628,7 @@ with tab4:
                 st.markdown(f"**Post:**\n{row.get('post_text', '')}")
 
     elif author_search.strip():
-        st.info(f"No posts found for \"{author_search}\". Try scraping first.")
+        st.info(f"No posts found for \"{author_search}\" in author database. Click 'Scrape Author Posts' to fetch them.")
 
 
 # --- Footer ---

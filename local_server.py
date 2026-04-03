@@ -136,6 +136,52 @@ def scrape():
     })
 
 
+@app.route("/scrape/author", methods=["POST"])
+def scrape_author():
+    if not check_auth(request):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    name = data.get("name", "").strip()
+    company = data.get("company", "").strip()
+    profile_url = data.get("profile_url", "").strip()
+    scrolls = data.get("scrolls", 10)
+
+    if not name and not profile_url:
+        return jsonify({"error": "Author name or profile URL is required"}), 400
+
+    scraper_path = os.path.join(os.path.dirname(__file__), "author_scraper.py")
+    cmd = [sys.executable, scraper_path]
+
+    if profile_url:
+        cmd.append(profile_url)
+    else:
+        cmd.append(name)
+        if company:
+            cmd.extend(["--company", company])
+
+    cmd.extend(["--scrolls", str(int(scrolls)), "--headless"])
+
+    process = subprocess.Popen(
+        cmd,
+        cwd=os.path.dirname(__file__),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    job_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    jobs[job_id] = {
+        "process": process,
+        "keyword": f"author:{name or profile_url}",
+        "started_at": datetime.now().isoformat(),
+    }
+
+    return jsonify({
+        "message": f"Scraping author \"{name or profile_url}\"...",
+        "job_id": job_id,
+    })
+
+
 @app.route("/scrape/status", methods=["GET"])
 def scrape_status():
     if not check_auth(request):

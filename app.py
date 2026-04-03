@@ -50,10 +50,13 @@ if st.sidebar.button("Run Scraper"):
                 headers={"Authorization": f"Bearer {SCRAPER_TOKEN}"},
                 timeout=10,
             )
-            data = res.json()
-            if res.ok:
+            if "text/html" in res.headers.get("content-type", ""):
+                st.sidebar.error("Local server is down. Start local_server.py on your machine.")
+            elif res.ok:
+                data = res.json()
                 st.sidebar.success(data.get("message", "Scraper started!"))
             else:
+                data = res.json()
                 st.sidebar.error(data.get("error", "Scraper request failed"))
         except requests.exceptions.ConnectionError:
             st.sidebar.error("Cannot reach local server. Make sure local_server.py and ngrok are running.")

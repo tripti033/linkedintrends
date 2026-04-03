@@ -34,14 +34,19 @@ async def find_author_profile(page: Page, name: str, company: str = "") -> str:
     await page.goto(search_url)
     await asyncio.sleep(3)
 
-    # Get first matching profile URL
+    # Get first matching profile URL (person or company)
     profile_url = await page.evaluate(r"""
     () => {
-        const links = document.querySelectorAll('a[href*="/in/"]');
-        for (const link of links) {
-            const href = link.getAttribute('href') || '';
-            if (href.includes('/in/') && !href.includes('/search/')) {
-                return href.split('?')[0];
+        // Try company links first, then personal profiles
+        const selectors = ['a[href*="/company/"]', 'a[href*="/in/"]'];
+        for (const sel of selectors) {
+            const links = document.querySelectorAll(sel);
+            for (const link of links) {
+                const href = link.getAttribute('href') || '';
+                if ((href.includes('/company/') || href.includes('/in/'))
+                    && !href.includes('/search/') && !href.includes('/jobs/')) {
+                    return href.split('?')[0];
+                }
             }
         }
         return null;
@@ -56,36 +61,45 @@ async def find_author_profile(page: Page, name: str, company: str = "") -> str:
 
 async def scrape_author_posts(page: Page, profile_url: str, scroll_count: int = 10) -> list[dict]:
     """Navigate to author's 'Recent Activity' / posts page and scrape all posts."""
-    # Navigate to their posts page
-    posts_url = profile_url.rstrip("/") + "/recent-activity/all/"
+    # Determine if it's a company page or personal profile
+    is_company = "/company/" in profile_url
+
+    if is_company:
+        # Company pages use /posts/ for their activity feed
+        posts_url = profile_url.rstrip("/") + "/posts/"
+    else:
+        posts_url = profile_url.rstrip("/") + "/recent-activity/all/"
+
     print(f"[AUTHOR] Navigating to: {posts_url}")
     await page.goto(posts_url)
-    await asyncio.sleep(4)
+    await asyncio.sleep(5)
 
     # Get author name from profile
     author_name = await page.evaluate(r"""
     () => {
-        // Try multiple selectors for the name
+        // Try multiple selectors for the name (personal + company)
         const selectors = [
+            '.org-top-card-summary__title',          // company page name
+            '.organization-outlet-miniprofile__title', // company mini
+            'h1.org-top-card-summary__title',
             'h1',
             '.text-heading-xlarge',
             '.pv-text-details__left-panel h1',
-            'a[href*="/in/"] h1',
-            '.profile-card-one-to-one__profile-link',
         ];
         for (const sel of selectors) {
             const el = document.querySelector(sel);
             if (el) {
                 const name = el.textContent.trim();
-                if (name && name.length > 1 && name.length < 80) return name;
+                if (name && name.length > 1 && name.length < 80
+                    && !name.toLowerCase().includes('activity')
+                    && !name.toLowerCase().includes('post')) return name;
             }
         }
-        // Fallback: page title — format: "(2) Activity | Tripti verma | LinkedIn"
+        // Fallback: page title — format: "(2) Ingro Energy: Posts | LinkedIn" or "(2) Activity | Tripti verma | LinkedIn"
         const title = document.title || '';
         const parts = title.split('|').map(p => p.trim());
-        // Name is usually the second part (after "Activity")
         for (const part of parts) {
-            const clean = part.replace(/^\(\d+\)\s*/, '').trim();
+            const clean = part.replace(/^\(\d+\)\s*/, '').replace(/:\s*Posts$/, '').trim();
             if (clean && clean !== 'LinkedIn' && clean !== 'Activity'
                 && clean.length > 1 && clean.length < 80) {
                 return clean;

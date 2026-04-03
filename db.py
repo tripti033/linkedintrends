@@ -53,6 +53,10 @@ def upsert_posts(posts: list[dict], keyword: str) -> dict:
 
     Returns stats: { inserted: N, updated: N, unchanged: N }
     """
+    # Normalize keyword to lowercase to avoid duplicates like "bess" vs "Bess"
+    keyword = keyword.strip().lower()
+    """
+    """
     db = get_db()
     collection = db.posts
     now = datetime.now(timezone.utc)

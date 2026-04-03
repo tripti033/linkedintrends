@@ -268,7 +268,12 @@ with tab1:
             if post_url and "/feed/update/" in str(post_url):
                 st.markdown(f"[View Post]({post_url})")
 
-            st.markdown(f"**Author:** {row.get('author_name', 'Unknown')}")
+            author_url = row.get("author_profile_url", "")
+            author_display = row.get("author_name", "Unknown")
+            if author_url:
+                st.markdown(f"**Author:** [{author_display}]({author_url})")
+            else:
+                st.markdown(f"**Author:** {author_display}")
 
             st.markdown(f"**Posted:** {row.get('posted_time_raw', 'N/A')}")
             st.markdown(f"**Post:**\n{row.get('post_text', '')}")
@@ -302,6 +307,10 @@ with tab2:
 
     # --- Top Authors ---
     st.write("### Top Authors by Engagement")
+
+    # Build author stats with profile URLs
+    author_url_map = df.groupby("author_name")["author_profile_url"].first().to_dict() if "author_profile_url" in df.columns else {}
+
     author_stats = (
         df.groupby("author_name")
         .agg(
@@ -331,21 +340,19 @@ with tab2:
     )
     st.plotly_chart(fig_authors, width="stretch")
 
-    # Table
-    st.dataframe(
-        author_stats.head(20)[
-            ["author_name", "post_count", "total_likes", "total_comments", "total_reposts", "avg_likes"]
-        ].rename(columns={
-            "author_name": "Author",
-            "post_count": "Posts",
-            "total_likes": "Likes",
-            "total_comments": "Comments",
-            "total_reposts": "Reposts",
-            "avg_likes": "Avg Likes",
-        }),
-        width="stretch",
-        hide_index=True,
-    )
+    # Author table with clickable profile links
+    st.write("**Top 20 Authors**")
+    for _, row in author_stats.head(20).iterrows():
+        name = row["author_name"]
+        url = author_url_map.get(name, "")
+        link = f"[{name}]({url})" if url else name
+        st.markdown(
+            f"{link} — **{int(row['post_count'])}** posts, "
+            f"**{int(row['total_likes']):,}** likes, "
+            f"**{int(row['total_comments']):,}** comments, "
+            f"**{int(row['total_reposts']):,}** reposts "
+            f"(avg {row['avg_likes']:.0f} likes/post)"
+        )
 
     # --- Engagement Distribution ---
     st.write("### Engagement Distribution")

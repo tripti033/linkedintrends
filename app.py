@@ -176,7 +176,7 @@ if df.empty:
     st.stop()
 
 # --- Tabs ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis", "Content Strategy", "Competitor Analysis"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis", "Content Strategy", "Competitor Analysis", "Posting Patterns"])
 
 # =================== TAB 1: TOP POSTS ===================
 with tab1:
@@ -1093,6 +1093,205 @@ with tab6:
 
         elif our_company:
             st.info("Select at least one competitor to compare against.")
+
+
+# =================== TAB 7: POSTING PATTERNS ===================
+with tab7:
+    st.subheader("Posting Patterns")
+    st.caption("When do high-engagement posts get published? Find the best day and time to post.")
+
+    import re as _re
+    from datetime import timedelta
+    import numpy as np
+
+    # --- Helper: estimate posting datetime from relative time + scrape time ---
+    def estimate_post_datetime(row):
+        scraped = row.get("first_scraped_at") or row.get("last_scraped_at")
+        time_raw = row.get("posted_time_raw", "")
+        if not scraped or not time_raw:
+            return None
+        if isinstance(scraped, str):
+            try:
+                scraped = pd.to_datetime(scraped)
+            except Exception:
+                return None
+
+        m = _re.match(r'(\d+)\s*(mo|yr|w|d|h|m)', str(time_raw).strip().lower())
+        if not m:
+            return None
+        num = int(m.group(1))
+        unit = m.group(2)
+        delta_map = {"m": timedelta(minutes=num), "h": timedelta(hours=num),
+                     "d": timedelta(days=num), "w": timedelta(weeks=num),
+                     "mo": timedelta(days=num*30), "yr": timedelta(days=num*365)}
+        delta = delta_map.get(unit)
+        if not delta:
+            return None
+        return scraped - delta
+
+    # === SECTION 1: GENERAL PATTERNS (from scraped keyword posts) ===
+    st.write("### General Posting Patterns (All Scraped Posts)")
+
+    pattern_df = df.copy()
+    pattern_df["est_datetime"] = pattern_df.apply(estimate_post_datetime, axis=1)
+    pattern_df = pattern_df.dropna(subset=["est_datetime"])
+
+    if pattern_df.empty:
+        st.info("Not enough data to estimate posting times. Scrape more posts.")
+    else:
+        pattern_df["day_of_week"] = pattern_df["est_datetime"].dt.day_name()
+        pattern_df["hour"] = pattern_df["est_datetime"].dt.hour
+
+        day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+        pp1, pp2 = st.columns(2)
+
+        # --- Day of week analysis ---
+        with pp1:
+            day_eng = pattern_df.groupby("day_of_week").agg(
+                count=("post_text", "count"),
+                avg_engagement=("total_engagement", "mean"),
+            ).reindex(day_order).reset_index()
+            day_eng.columns = ["Day", "Posts", "Avg Engagement"]
+
+            fig_day = px.bar(
+                day_eng, x="Day", y="Avg Engagement",
+                title="Avg Engagement by Day of Week",
+                color="Avg Engagement",
+                color_continuous_scale="Blues",
+                hover_data=["Posts"],
+            )
+            st.plotly_chart(fig_day, width="stretch")
+
+            if not day_eng.empty:
+                best_day = day_eng.sort_values("Avg Engagement", ascending=False).iloc[0]
+                st.success(f"**Best day to post: {best_day['Day']}** — avg {best_day['Avg Engagement']:.0f} engagement ({int(best_day['Posts'])} posts)")
+
+        # --- Hour of day analysis ---
+        with pp2:
+            hour_eng = pattern_df.groupby("hour").agg(
+                count=("post_text", "count"),
+                avg_engagement=("total_engagement", "mean"),
+            ).reset_index()
+            hour_eng.columns = ["Hour", "Posts", "Avg Engagement"]
+
+            fig_hour = px.bar(
+                hour_eng, x="Hour", y="Avg Engagement",
+                title="Avg Engagement by Hour of Day",
+                color="Avg Engagement",
+                color_continuous_scale="Oranges",
+                hover_data=["Posts"],
+            )
+            fig_hour.update_xaxes(dtick=1)
+            st.plotly_chart(fig_hour, width="stretch")
+
+            if not hour_eng.empty:
+                best_hour = hour_eng.sort_values("Avg Engagement", ascending=False).iloc[0]
+                hour_label = f"{int(best_hour['Hour']):02d}:00"
+                st.success(f"**Best hour to post: {hour_label}** — avg {best_hour['Avg Engagement']:.0f} engagement ({int(best_hour['Posts'])} posts)")
+
+        # --- Heatmap: Day x Hour ---
+        st.write("### Engagement Heatmap (Day x Hour)")
+
+        heatmap_data = pattern_df.groupby(["day_of_week", "hour"])["total_engagement"].mean().reset_index()
+        heatmap_data.columns = ["Day", "Hour", "Avg Engagement"]
+
+        # Pivot for heatmap
+        heatmap_pivot = heatmap_data.pivot(index="Day", columns="Hour", values="Avg Engagement")
+        heatmap_pivot = heatmap_pivot.reindex(day_order)
+
+        fig_heat = px.imshow(
+            heatmap_pivot,
+            labels=dict(x="Hour of Day", y="Day of Week", color="Avg Engagement"),
+            title="When to Post for Maximum Engagement",
+            color_continuous_scale="YlOrRd",
+            aspect="auto",
+        )
+        st.plotly_chart(fig_heat, width="stretch")
+
+        # Best slot recommendation
+        if not heatmap_data.empty:
+            best_slot = heatmap_data.sort_values("Avg Engagement", ascending=False).iloc[0]
+            st.success(
+                f"**Best posting slot: {best_slot['Day']} at {int(best_slot['Hour']):02d}:00** — "
+                f"avg {best_slot['Avg Engagement']:.0f} engagement"
+            )
+
+    # === SECTION 2: COMPETITOR POSTING PATTERNS ===
+    st.markdown("---")
+    st.write("### Company/Competitor Posting Patterns")
+
+    comp_pattern_df = load_author_posts()
+    if comp_pattern_df.empty:
+        st.info("No author/company data. Scrape companies in the Author Analysis tab.")
+    else:
+        available = sorted(comp_pattern_df["author_name"].unique())
+        selected_companies = st.multiselect("Select companies to analyze", available, default=available[:3], key="pattern_companies")
+
+        if selected_companies:
+            cdf = comp_pattern_df[comp_pattern_df["author_name"].isin(selected_companies)].copy()
+            cdf["est_datetime"] = cdf.apply(estimate_post_datetime, axis=1)
+            cdf = cdf.dropna(subset=["est_datetime"])
+
+            if cdf.empty:
+                st.info("Not enough timestamp data to estimate patterns.")
+            else:
+                cdf["day_of_week"] = cdf["est_datetime"].dt.day_name()
+                cdf["hour"] = cdf["est_datetime"].dt.hour
+
+                # --- Day of week by company ---
+                cp1, cp2 = st.columns(2)
+                with cp1:
+                    comp_day = cdf.groupby(["author_name", "day_of_week"]).agg(
+                        count=("post_text", "count"),
+                        avg_engagement=("total_engagement", "mean"),
+                    ).reset_index()
+
+                    fig_comp_day = px.bar(
+                        comp_day, x="day_of_week", y="count", color="author_name",
+                        title="Posts per Day of Week",
+                        labels={"day_of_week": "Day", "count": "Posts", "author_name": "Company"},
+                        barmode="group",
+                        category_orders={"day_of_week": day_order},
+                    )
+                    st.plotly_chart(fig_comp_day, width="stretch")
+
+                with cp2:
+                    fig_comp_day_eng = px.bar(
+                        comp_day, x="day_of_week", y="avg_engagement", color="author_name",
+                        title="Avg Engagement per Day",
+                        labels={"day_of_week": "Day", "avg_engagement": "Avg Engagement", "author_name": "Company"},
+                        barmode="group",
+                        category_orders={"day_of_week": day_order},
+                    )
+                    st.plotly_chart(fig_comp_day_eng, width="stretch")
+
+                # --- Hour of day by company ---
+                comp_hour = cdf.groupby(["author_name", "hour"]).size().reset_index(name="count")
+
+                fig_comp_hour = px.line(
+                    comp_hour, x="hour", y="count", color="author_name",
+                    title="Posting Frequency by Hour",
+                    labels={"hour": "Hour", "count": "Posts", "author_name": "Company"},
+                    markers=True,
+                )
+                fig_comp_hour.update_xaxes(dtick=2)
+                st.plotly_chart(fig_comp_hour, width="stretch")
+
+                # --- Per-company summary ---
+                st.write("### Posting Schedule Summary")
+                for name in selected_companies:
+                    ndf = cdf[cdf["author_name"] == name]
+                    if ndf.empty:
+                        continue
+                    top_day = ndf.groupby("day_of_week")["total_engagement"].mean().idxmax()
+                    top_hour = ndf.groupby("hour")["total_engagement"].mean().idxmax()
+                    avg_posts_week = len(ndf) / max(1, (ndf["est_datetime"].max() - ndf["est_datetime"].min()).days / 7)
+
+                    st.markdown(
+                        f"**{name}:** Best day = **{top_day}**, Best hour = **{int(top_hour):02d}:00**, "
+                        f"~**{avg_posts_week:.1f}** posts/week"
+                    )
 
 
 # --- Footer ---

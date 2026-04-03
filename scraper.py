@@ -178,34 +178,111 @@ def _merge_api_into_dom(
 async def expand_all_posts(page: Page):
     """Click all 'see more' / '...more' buttons to expand truncated post text."""
     try:
-        # Use Playwright locator to find and click all "more" buttons reliably
-        more_buttons = page.locator('button:text("…more"), button:text("...more"), button:text("see more")')
-        count = await more_buttons.count()
-        clicked = 0
-        for i in range(count):
-            try:
-                btn = more_buttons.nth(i)
-                if await btn.is_visible():
-                    await btn.click(timeout=1000)
-                    clicked += 1
-            except Exception:
-                pass
+        # Strategy 1: JavaScript-based — find ALL clickable elements containing "more"
+        # This is resilient to selector changes since it scans text content
+        clicked = await page.evaluate(r"""
+        () => {
+            let count = 0;
+            const clicked = new Set();
 
-        # Also try span-based "more" triggers
-        more_spans = page.locator('span[role="button"]:text("…more"), span[role="button"]:text("see more")')
-        span_count = await more_spans.count()
-        for i in range(span_count):
+            // Scan every element on the page for "more" text
+            const walker = document.createTreeWalker(
+                document.body,
+                NodeFilter.SHOW_ELEMENT,
+                null
+            );
+
+            while (walker.nextNode()) {
+                const el = walker.currentNode;
+                if (clicked.has(el)) continue;
+
+                // Only check leaf-ish elements (buttons, spans, anchors)
+                const tag = el.tagName.toLowerCase();
+                if (!['button', 'span', 'a', 'div'].includes(tag)) continue;
+
+                const text = (el.textContent || '').trim();
+                const directText = el.childNodes.length <= 3 ? text : '';
+
+                // Match various "more" patterns LinkedIn uses
+                if (directText === '…more' || directText === '...more'
+                    || directText.toLowerCase() === 'see more'
+                    || directText.toLowerCase() === 'show more'
+                    || text === '…more' || text === '...more') {
+
+                    // Must be visible
+                    if (el.offsetParent === null && el.style.display === 'none') continue;
+
+                    // Check it's clickable
+                    const isClickable = tag === 'button'
+                        || el.getAttribute('role') === 'button'
+                        || el.style.cursor === 'pointer'
+                        || el.classList.contains('see-more-less-button')
+                        || el.closest('button');
+
+                    if (isClickable || tag === 'span' || tag === 'a') {
+                        el.click();
+                        clicked.add(el);
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+        """)
+
+        if clicked > 0:
+            print(f"[SCRAPER] Expanded {clicked} truncated posts (JS)")
+            await asyncio.sleep(1)
+
+        # Strategy 2: Playwright locators as backup — catches elements JS might miss
+        for selector in [
+            'button:has-text("…more")',
+            'button:has-text("see more")',
+            'span:has-text("…more")',
+            '[role="button"]:has-text("…more")',
+            '.feed-shared-inline-show-more-text',
+        ]:
             try:
-                span = more_spans.nth(i)
-                if await span.is_visible():
-                    await span.click(timeout=1000)
-                    clicked += 1
+                elements = page.locator(selector)
+                el_count = await elements.count()
+                for i in range(el_count):
+                    try:
+                        el = elements.nth(i)
+                        if await el.is_visible():
+                            await el.click(timeout=1000)
+                            clicked += 1
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
         if clicked > 0:
-            print(f"[SCRAPER] Expanded {clicked} truncated posts")
-            await asyncio.sleep(1)  # wait for full text to render
+            print(f"[SCRAPER] Total expansions: {clicked}")
+            await asyncio.sleep(1)
+        else:
+            # Debug: log what "more"-like text exists on the page
+            debug_info = await page.evaluate(r"""
+            () => {
+                const results = [];
+                const all = document.querySelectorAll('button, span[role="button"], a, span');
+                for (const el of all) {
+                    const text = (el.textContent || '').trim();
+                    if (text.toLowerCase().includes('more') && text.length < 30) {
+                        results.push({
+                            tag: el.tagName,
+                            text: text,
+                            classes: el.className,
+                            role: el.getAttribute('role') || '',
+                            visible: el.offsetParent !== null,
+                        });
+                    }
+                }
+                return results.slice(0, 20);
+            }
+            """)
+            if debug_info:
+                print(f"[SCRAPER] Debug — 'more' elements found but not clicked: {debug_info[:5]}")
+
     except Exception as e:
         print(f"[SCRAPER] Expand posts error (non-fatal): {e}")
 

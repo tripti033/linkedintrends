@@ -212,47 +212,67 @@ EXTRACT_ALL_POSTS_JS = r"""
         }
 
         // ==== POST TEXT ====
-        // Primary: expandable text box (LinkedIn SDUI standard)
-        const expandable = post.querySelector('[data-testid="expandable-text-box"]');
-        if (expandable) {
-            // Get the full container text — after "see more" has been clicked,
-            // the hidden content becomes visible
-            const fullTextEl = expandable.querySelector('.break-words') || expandable;
-            result.post_text = fullTextEl.textContent.trim()
-                .replace(/…\s*more\s*$/, '')
-                .replace(/\s*see less\s*$/i, '')
-                .substring(0, 5000);
-        }
+        // Clean function to strip "more" / "see less" artifacts
+        const cleanText = (t) => t.trim()
+            .replace(/…\s*more\s*$/i, '')
+            .replace(/\.\.\.\s*more\s*$/i, '')
+            .replace(/\s*see less\s*$/i, '')
+            .replace(/\s*show less\s*$/i, '')
+            .substring(0, 5000);
 
-        // Also try aria-expanded containers (LinkedIn reveals full text here)
-        if (!result.post_text || result.post_text.length < 50) {
-            const expanded = post.querySelector('[aria-expanded="true"] .break-words');
-            if (expanded) {
-                const text = expanded.textContent.trim()
-                    .replace(/\s*see less\s*$/i, '')
-                    .substring(0, 5000);
+        // Try multiple selectors — LinkedIn changes these frequently
+        const textSelectors = [
+            '[data-testid="expandable-text-box"]',
+            '[data-ad-dom-id] .break-words',
+            '.feed-shared-update-v2__description .break-words',
+            '.feed-shared-text .break-words',
+            '.update-components-text .break-words',
+            '.break-words[dir="ltr"]',
+        ];
+
+        for (const sel of textSelectors) {
+            const el = post.querySelector(sel);
+            if (el) {
+                const text = cleanText(el.textContent);
                 if (text.length > (result.post_text || '').length) {
                     result.post_text = text;
                 }
             }
         }
 
-        // Fallback: longest text element
-        if (!result.post_text || result.post_text.length < 20) {
-            let longest = '';
-            const textEls = post.querySelectorAll('span[dir="ltr"], span[dir="auto"], span[lang], p');
+        // Also try aria-expanded containers (LinkedIn reveals full text here)
+        if (!result.post_text || result.post_text.length < 50) {
+            const expanded = post.querySelector('[aria-expanded="true"] .break-words');
+            if (expanded) {
+                const text = cleanText(expanded.textContent);
+                if (text.length > (result.post_text || '').length) {
+                    result.post_text = text;
+                }
+            }
+        }
+
+        // Fallback: find the longest text block in the post container
+        // This is the most resilient approach — doesn't depend on selectors
+        if (!result.post_text || result.post_text.length < 50) {
+            let longest = result.post_text || '';
+            const SKIP = new Set([
+                'Follow', 'Like', 'Comment', 'Repost', 'Send', 'Report',
+                'Copy link', 'Save', 'Not interested', 'Feed post',
+                'Show translation', '…more', '...more', 'see more', 'see less'
+            ]);
+
+            const textEls = post.querySelectorAll('span[dir="ltr"], span[dir="auto"], span[lang], p, div.break-words');
             for (const el of textEls) {
                 const text = el.textContent.trim();
                 if (text.length <= longest.length || text.length < 20) continue;
                 if (text === result.author_name || text === result.author_headline) continue;
-                if (['Follow', 'Like', 'Comment', 'Repost', 'Send', 'Report',
-                     'Copy link', 'Save', 'Not interested', 'Feed post'].includes(text)) continue;
+                if (SKIP.has(text)) continue;
+                // Skip engagement count text
+                if (/^\d[\d,]*\s*(reactions?|comments?|reposts?|likes?|shares?)$/i.test(text)) continue;
                 longest = text;
             }
             if (longest.length > (result.post_text || '').length) {
-                result.post_text = longest.replace(/…\s*more\s*$/, '')
-                    .replace(/\s*see less\s*$/i, '')
-                    .substring(0, 5000);
+                result.post_text = cleanText(longest);
             }
         }
 

@@ -127,6 +127,24 @@ def load_posts():
     df["reposts"] = df.get("num_reposts", 0)
     df["total_engagement"] = df["likes"] + df["comments"] + df["reposts"]
     df["author_name"] = df["author_name"].fillna("").replace("", "Unknown")
+
+    # Convert posted_time_raw (e.g. "3d", "2w", "1mo") to hours for sorting
+    def time_to_hours(t):
+        if not t or not isinstance(t, str):
+            return 99999
+        t = t.strip().lower()
+        import re as _re
+        m = _re.match(r'(\d+)\s*(m|h|d|w|mo|y)', t)
+        if not m:
+            return 99999
+        num = int(m.group(1))
+        unit = m.group(2)
+        return {"m": num / 60, "h": num, "d": num * 24, "w": num * 168, "mo": num * 720, "y": num * 8760}.get(unit, 99999)
+
+    if "posted_time_raw" in df.columns:
+        df["time_hours"] = df["posted_time_raw"].apply(time_to_hours)
+    else:
+        df["time_hours"] = 99999
     df["display"] = (
         df["author_name"]
         + " - "
@@ -201,16 +219,21 @@ with tab1:
     # Sort option
     sc1, sc2 = st.columns(2)
     with sc1:
-        sort_by = st.selectbox("Sort by", ["Total Engagement", "Likes", "Comments", "Reposts"])
+        sort_by = st.selectbox("Sort by", ["Total Engagement", "Likes", "Comments", "Reposts", "Most Recent"])
         sort_col = {
             "Total Engagement": "total_engagement",
             "Likes": "likes",
             "Comments": "comments",
             "Reposts": "reposts",
+            "Most Recent": "time_hours",
         }[sort_by]
     with sc2:
-        sort_order = st.selectbox("Order", ["Highest first", "Lowest first"])
-        ascending = sort_order == "Lowest first"
+        if sort_by == "Most Recent":
+            sort_order = st.selectbox("Order", ["Newest first", "Oldest first"])
+            ascending = sort_order == "Newest first"  # smallest hours = newest
+        else:
+            sort_order = st.selectbox("Order", ["Highest first", "Lowest first"])
+            ascending = sort_order == "Lowest first"
 
     if "keywords" in df.columns and all_keywords:
         st.caption("Available keywords: " + ", ".join(all_keywords[:15]))

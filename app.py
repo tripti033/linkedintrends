@@ -193,7 +193,7 @@ with tab1:
                 st.markdown(f"[View Post]({post_url})")
 
             st.markdown(f"**Author:** {row.get('author_name', 'Unknown')}")
-            st.markdown(f"**Headline:** {row.get('author_headline', '')}")
+
             st.markdown(f"**Posted:** {row.get('posted_time_raw', 'N/A')}")
             st.markdown(f"**Post:**\n{row.get('post_text', '')}")
 

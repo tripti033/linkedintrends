@@ -65,10 +65,56 @@ async def scrape_author_posts(page: Page, profile_url: str, scroll_count: int = 
     is_company = "/company/" in profile_url
 
     if is_company:
-        # Company pages use /posts/ for their activity feed
         posts_url = profile_url.rstrip("/") + "/posts/"
     else:
         posts_url = profile_url.rstrip("/") + "/recent-activity/all/"
+
+    # Navigate and check if the page is valid
+    print(f"[AUTHOR] Navigating to: {posts_url}")
+    try:
+        await page.goto(posts_url, timeout=15000)
+    except Exception:
+        pass  # timeout is fine — page may have redirected
+    await asyncio.sleep(2)
+
+    # Check if we got redirected to /unavailable/
+    if "/unavailable" in page.url:
+        print(f"[AUTHOR] URL invalid (redirected to unavailable). Searching for the correct page...")
+        # Extract name from URL for searching
+        slug = profile_url.rstrip("/").split("/")[-1]
+        search_name = slug.replace("-", " ")
+        search_type = "companies" if is_company else "people"
+        search_url = f"https://www.linkedin.com/search/results/{search_type}/?keywords={search_name}"
+        await page.goto(search_url)
+        await asyncio.sleep(4)
+
+        # Get the first result URL
+        selector = 'a[href*="/company/"]' if is_company else 'a[href*="/in/"]'
+        correct_url = await page.evaluate(f"""
+        () => {{
+            const links = document.querySelectorAll('{selector}');
+            for (const link of links) {{
+                const href = link.getAttribute('href') || '';
+                if (!href.includes('/search/') && !href.includes('/jobs/')) {{
+                    return href.split('?')[0];
+                }}
+            }}
+            return null;
+        }}
+        """)
+
+        if correct_url:
+            if not correct_url.startswith("http"):
+                correct_url = "https://www.linkedin.com" + correct_url
+            print(f"[AUTHOR] Found correct URL: {correct_url}")
+            profile_url = correct_url
+            if is_company:
+                posts_url = profile_url.rstrip("/") + "/posts/"
+            else:
+                posts_url = profile_url.rstrip("/") + "/recent-activity/all/"
+        else:
+            print("[AUTHOR] Could not find the correct page.")
+            return [], ""
 
     print(f"[AUTHOR] Navigating to: {posts_url}")
     await page.goto(posts_url)

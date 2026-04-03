@@ -176,7 +176,7 @@ if df.empty:
     st.stop()
 
 # --- Tabs ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis", "Content Strategy"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis", "Content Strategy", "Competitor Analysis"])
 
 # =================== TAB 1: TOP POSTS ===================
 with tab1:
@@ -866,6 +866,182 @@ with tab5:
             )
             fig_et.update_layout(yaxis=dict(tickfont=dict(size=12)), height=400)
             st.plotly_chart(fig_et, width="stretch")
+
+
+# =================== TAB 6: COMPETITOR ANALYSIS ===================
+with tab6:
+    st.subheader("Competitor Analysis")
+    st.caption("Compare your LinkedIn presence against competitors")
+
+    import re as _re
+    from collections import Counter
+
+    # Load author_posts data
+    comp_df = load_author_posts()
+
+    if comp_df.empty:
+        st.warning("No author/company data yet. Go to **Author Analysis** tab and scrape your company + competitor pages first.")
+        st.markdown("""
+        **How to use:**
+        1. Go to **Author Analysis** tab
+        2. Scrape your company: enter "Ingro Energy" or your LinkedIn company page URL
+        3. Scrape competitors: enter their names/URLs (e.g. "Fluence Energy", "Tesla Energy")
+        4. Come back here to compare
+        """)
+    else:
+        # Get unique authors/companies
+        available_authors = sorted(comp_df["author_name"].unique())
+
+        st.write("### Select Companies to Compare")
+
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            our_company = st.selectbox("Your Company", available_authors, key="our_company")
+        with cc2:
+            competitors = st.multiselect("Competitors", [a for a in available_authors if a != our_company], key="competitors")
+
+        if our_company and competitors:
+            all_selected = [our_company] + competitors
+            compare_df = comp_df[comp_df["author_name"].isin(all_selected)].copy()
+
+            # ===== OVERVIEW COMPARISON =====
+            st.write("### Overview")
+
+            overview_data = []
+            for name in all_selected:
+                adf = compare_df[compare_df["author_name"] == name]
+                texts = adf["post_text"].fillna("").tolist()
+                all_tags = []
+                for t in texts:
+                    all_tags.extend(_re.findall(r'#\w+', t))
+
+                overview_data.append({
+                    "Company": name,
+                    "Posts": len(adf),
+                    "Total Likes": int(adf["likes"].sum()),
+                    "Total Comments": int(adf["comments"].sum()),
+                    "Total Reposts": int(adf["reposts"].sum()),
+                    "Avg Engagement": round(adf["total_engagement"].mean(), 1) if len(adf) > 0 else 0,
+                    "Max Engagement": int(adf["total_engagement"].max()) if len(adf) > 0 else 0,
+                    "Avg Words/Post": round(adf["post_text"].fillna("").apply(lambda x: len(x.split())).mean(), 0) if len(adf) > 0 else 0,
+                    "Hashtags Used": len(set(all_tags)),
+                })
+
+            overview_df = pd.DataFrame(overview_data)
+            st.dataframe(overview_df, width="stretch", hide_index=True)
+
+            # ===== ENGAGEMENT COMPARISON BAR =====
+            st.write("### Engagement Comparison")
+            eg1, eg2 = st.columns(2)
+
+            with eg1:
+                fig_avg = px.bar(
+                    overview_df, x="Company", y="Avg Engagement",
+                    title="Avg Engagement per Post",
+                    color="Company",
+                )
+                st.plotly_chart(fig_avg, width="stretch")
+
+            with eg2:
+                fig_total = px.bar(
+                    overview_df, x="Company", y=["Total Likes", "Total Comments", "Total Reposts"],
+                    title="Total Engagement Breakdown",
+                    barmode="stack",
+                )
+                st.plotly_chart(fig_total, width="stretch")
+
+            # ===== POST VOLUME =====
+            st.write("### Posting Activity")
+            fig_posts = px.bar(
+                overview_df, x="Company", y="Posts",
+                title="Number of Posts Scraped",
+                color="Company",
+            )
+            st.plotly_chart(fig_posts, width="stretch")
+
+            # ===== CONTENT FORMAT COMPARISON =====
+            if "media_type" in compare_df.columns:
+                st.write("### Content Format Comparison")
+                format_data = compare_df.groupby(["author_name", "media_type"]).size().reset_index(name="count")
+                fig_format = px.bar(
+                    format_data, x="author_name", y="count", color="media_type",
+                    title="Content Formats Used",
+                    labels={"author_name": "Company", "count": "Posts", "media_type": "Format"},
+                    barmode="group",
+                )
+                st.plotly_chart(fig_format, width="stretch")
+
+            # ===== ENGAGEMENT DISTRIBUTION =====
+            st.write("### Engagement Distribution")
+            fig_box = px.box(
+                compare_df, x="author_name", y="total_engagement",
+                title="Engagement Spread per Company",
+                labels={"author_name": "Company", "total_engagement": "Engagement"},
+                color="author_name",
+                points="all",
+            )
+            st.plotly_chart(fig_box, width="stretch")
+
+            # ===== HASHTAG COMPARISON =====
+            st.write("### Hashtag Strategy Comparison")
+
+            for name in all_selected:
+                adf = compare_df[compare_df["author_name"] == name]
+                tags = []
+                for text in adf["post_text"].fillna(""):
+                    tags.extend([t.lower() for t in _re.findall(r'#\w+', text)])
+                top_tags = Counter(tags).most_common(10)
+
+                if top_tags:
+                    tag_str = " ".join([f"`{t[0]}` ({t[1]})" for t in top_tags])
+                    is_us = "(You)" if name == our_company else ""
+                    st.markdown(f"**{name}** {is_us}: {tag_str}")
+
+            # ===== POST LENGTH COMPARISON =====
+            st.write("### Post Length Comparison")
+            compare_df["word_count"] = compare_df["post_text"].fillna("").apply(lambda x: len(x.split()))
+            fig_len = px.box(
+                compare_df, x="author_name", y="word_count",
+                title="Post Length (Words)",
+                labels={"author_name": "Company", "word_count": "Words"},
+                color="author_name",
+            )
+            st.plotly_chart(fig_len, width="stretch")
+
+            # ===== WINS & GAPS =====
+            st.write("### Key Takeaways")
+
+            our_data = overview_df[overview_df["Company"] == our_company].iloc[0]
+            for _, comp_data in overview_df[overview_df["Company"] != our_company].iterrows():
+                st.markdown(f"**vs {comp_data['Company']}:**")
+                points = []
+
+                # Engagement comparison
+                if our_data["Avg Engagement"] > comp_data["Avg Engagement"]:
+                    diff = our_data["Avg Engagement"] - comp_data["Avg Engagement"]
+                    points.append(f"You get **{diff:.0f} more** avg engagement per post")
+                else:
+                    diff = comp_data["Avg Engagement"] - our_data["Avg Engagement"]
+                    points.append(f"They get **{diff:.0f} more** avg engagement — study their top posts")
+
+                # Volume comparison
+                if our_data["Posts"] < comp_data["Posts"]:
+                    points.append(f"They post **{comp_data['Posts'] - our_data['Posts']}x more** — consider increasing frequency")
+                elif our_data["Posts"] > comp_data["Posts"]:
+                    points.append(f"You post **more** than them — focus on quality over quantity")
+
+                # Word count
+                if our_data["Avg Words/Post"] < comp_data["Avg Words/Post"] * 0.7:
+                    points.append("Their posts are **longer** — try writing more detailed content")
+                elif our_data["Avg Words/Post"] > comp_data["Avg Words/Post"] * 1.3:
+                    points.append("Your posts are **longer** — they keep it concise")
+
+                for p in points:
+                    st.markdown(f"- {p}")
+                st.markdown("")
+
+        elif our_company:
+            st.info("Select at least one competitor to compare against.")
 
 
 # --- Footer ---

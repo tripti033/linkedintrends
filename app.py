@@ -876,27 +876,78 @@ with tab6:
     import re as _re
     from collections import Counter
 
+    # --- Scrape competitors section ---
+    st.write("### Add Companies to Compare")
+    st.caption("Scrape your company and competitor LinkedIn pages to compare them")
+
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        comp_name = st.text_input("Company/Author name", placeholder="e.g. Fluence Energy", key="comp_name")
+    with sc2:
+        comp_url = st.text_input("LinkedIn URL (company or profile)", placeholder="e.g. https://www.linkedin.com/company/fluence/", key="comp_url")
+
+    comp_scrolls = st.slider("Scrolls (more = more posts)", 2, 30, 10, key="comp_scrolls")
+
+    if st.button("Scrape & Add"):
+        if not comp_name.strip() and not comp_url.strip():
+            st.error("Enter a name or URL.")
+        else:
+            try:
+                if SCRAPER_URL:
+                    res = requests.post(
+                        f"{SCRAPER_URL}/scrape/author",
+                        json={
+                            "name": comp_name.strip(),
+                            "profile_url": comp_url.strip(),
+                            "scrolls": comp_scrolls,
+                        },
+                        headers={"Authorization": f"Bearer {SCRAPER_TOKEN}"},
+                        timeout=10,
+                    )
+                    if "text/html" in res.headers.get("content-type", ""):
+                        st.error("Local server is down.")
+                    elif res.ok:
+                        st.success(f"Scraping {comp_name or comp_url}... Refresh in ~2 min.")
+                    else:
+                        st.error(res.json().get("error", "Failed"))
+                else:
+                    scraper_dir = os.path.dirname(os.path.abspath(__file__))
+                    cmd = [sys.executable, os.path.join(scraper_dir, "author_scraper.py")]
+                    if comp_url.strip():
+                        cmd.append(comp_url.strip())
+                    else:
+                        cmd.append(comp_name.strip())
+                    cmd.extend(["--scrolls", str(comp_scrolls), "--headless"])
+                    subprocess.Popen(cmd, cwd=scraper_dir)
+                    st.success(f"Scraping {comp_name or comp_url}... Refresh in ~2 min.")
+            except requests.exceptions.ConnectionError:
+                st.error("Cannot reach local server.")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    st.markdown("---")
+
     # Load author_posts data
     comp_df = load_author_posts()
 
     if comp_df.empty:
-        st.warning("No author/company data yet. Go to **Author Analysis** tab and scrape your company + competitor pages first.")
-        st.markdown("""
-        **How to use:**
-        1. Go to **Author Analysis** tab
-        2. Scrape your company: enter "Ingro Energy" or your LinkedIn company page URL
-        3. Scrape competitors: enter their names/URLs (e.g. "Fluence Energy", "Tesla Energy")
-        4. Come back here to compare
-        """)
+        st.info("No data yet. Add your company and competitors above, then refresh after scraping.")
     else:
         # Get unique authors/companies
         available_authors = sorted(comp_df["author_name"].unique())
 
-        st.write("### Select Companies to Compare")
+        st.write("### Compare")
+
+        # Default to Ingro Energy if available
+        our_default = 0
+        for i, a in enumerate(available_authors):
+            if "ingro" in a.lower():
+                our_default = i
+                break
 
         cc1, cc2 = st.columns(2)
         with cc1:
-            our_company = st.selectbox("Your Company", available_authors, key="our_company")
+            our_company = st.selectbox("Your Company", available_authors, index=our_default, key="our_company")
         with cc2:
             competitors = st.multiselect("Competitors", [a for a in available_authors if a != our_company], key="competitors")
 

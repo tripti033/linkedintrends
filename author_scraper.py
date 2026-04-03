@@ -65,8 +65,33 @@ async def scrape_author_posts(page: Page, profile_url: str, scroll_count: int = 
     # Get author name from profile
     author_name = await page.evaluate(r"""
     () => {
-        const h1 = document.querySelector('h1');
-        return h1 ? h1.textContent.trim() : '';
+        // Try multiple selectors for the name
+        const selectors = [
+            'h1',
+            '.text-heading-xlarge',
+            '.pv-text-details__left-panel h1',
+            'a[href*="/in/"] h1',
+            '.profile-card-one-to-one__profile-link',
+        ];
+        for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+                const name = el.textContent.trim();
+                if (name && name.length > 1 && name.length < 80) return name;
+            }
+        }
+        // Fallback: page title — format: "(2) Activity | Tripti verma | LinkedIn"
+        const title = document.title || '';
+        const parts = title.split('|').map(p => p.trim());
+        // Name is usually the second part (after "Activity")
+        for (const part of parts) {
+            const clean = part.replace(/^\(\d+\)\s*/, '').trim();
+            if (clean && clean !== 'LinkedIn' && clean !== 'Activity'
+                && clean.length > 1 && clean.length < 80) {
+                return clean;
+            }
+        }
+        return '';
     }
     """)
     print(f"[AUTHOR] Author: {author_name}")
@@ -164,7 +189,7 @@ async def scrape_author_posts(page: Page, profile_url: str, scroll_count: int = 
                     result.posted_time = timeMatch[1] + timeMatch[2];
                 }
 
-                // Engagement
+                // Engagement — check both span text and button aria-labels
                 const allSpans = post.querySelectorAll('span');
                 for (const span of allSpans) {
                     const text = span.textContent.trim().toLowerCase();
@@ -178,6 +203,24 @@ async def scrape_author_posts(page: Page, profile_url: str, scroll_count: int = 
                     }
                     if (text.match(/^\d[\d,]*\s*(reposts?|shares?)$/) && result.num_reposts === 0) {
                         const m = text.match(/^(\d[\d,]*)/);
+                        if (m) result.num_reposts = parseInt(m[1].replace(/,/g, ''));
+                    }
+                }
+
+                // Fallback: button aria-labels (e.g. "9 reactions", "1 comment on...")
+                const buttons = post.querySelectorAll('button[aria-label]');
+                for (const btn of buttons) {
+                    const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+                    if ((label.includes('reaction') || label.includes('like')) && result.num_likes === 0) {
+                        const m = label.match(/(\d[\d,]*)\s*(?:reaction|like)/);
+                        if (m) result.num_likes = parseInt(m[1].replace(/,/g, ''));
+                    }
+                    if (label.includes('comment') && !label.includes('add') && result.num_comments === 0) {
+                        const m = label.match(/(\d[\d,]*)\s*comment/);
+                        if (m) result.num_comments = parseInt(m[1].replace(/,/g, ''));
+                    }
+                    if ((label.includes('repost') || label.includes('share')) && result.num_reposts === 0) {
+                        const m = label.match(/(\d[\d,]*)\s*(?:repost|share)/);
                         if (m) result.num_reposts = parseInt(m[1].replace(/,/g, ''));
                     }
                 }

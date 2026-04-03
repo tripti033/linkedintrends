@@ -35,6 +35,13 @@ scrape_keyword = st.sidebar.text_input(
     placeholder="bess, solar, energy storage"
 )
 
+with st.sidebar.expander("Scraper Settings", expanded=False):
+    scrape_scrolls = st.number_input("Scroll count (more = more posts)", min_value=1, max_value=50, value=5)
+    scrape_sort = st.selectbox("Sort by", ["relevance", "date_posted"], index=0)
+    scrape_headless = st.checkbox("Headless mode (no browser window)", value=True)
+    scrape_delay_min = st.number_input("Min delay (seconds)", min_value=1, max_value=30, value=2)
+    scrape_delay_max = st.number_input("Max delay (seconds)", min_value=1, max_value=60, value=5)
+
 SCRAPER_URL = os.getenv("SCRAPER_URL", "")
 SCRAPER_TOKEN = os.getenv("SCRAPER_TOKEN", "")
 
@@ -46,7 +53,14 @@ if st.sidebar.button("Run Scraper"):
         try:
             res = requests.post(
                 f"{SCRAPER_URL}/scrape",
-                json={"keyword": scrape_keyword.strip()},
+                json={
+                    "keyword": scrape_keyword.strip(),
+                    "scrolls": scrape_scrolls,
+                    "sort": scrape_sort,
+                    "headless": scrape_headless,
+                    "delay_min": scrape_delay_min,
+                    "delay_max": scrape_delay_max,
+                },
                 headers={"Authorization": f"Bearer {SCRAPER_TOKEN}"},
                 timeout=10,
             )
@@ -66,10 +80,11 @@ if st.sidebar.button("Run Scraper"):
         # Local: run scraper directly
         st.sidebar.warning("Scraper started... browser may open.")
         scraper_dir = os.path.dirname(os.path.abspath(__file__))
-        subprocess.Popen(
-            [sys.executable, os.path.join(scraper_dir, "scraper.py"), scrape_keyword.strip()],
-            cwd=scraper_dir,
-        )
+        cmd = [sys.executable, os.path.join(scraper_dir, "scraper.py"), scrape_keyword.strip(),
+               "--scrolls", str(scrape_scrolls), "--sort", scrape_sort]
+        if scrape_headless:
+            cmd.append("--headless")
+        subprocess.Popen(cmd, cwd=scraper_dir)
         st.sidebar.success("Scraper running in background!")
 
 if st.sidebar.button("Refresh Data"):

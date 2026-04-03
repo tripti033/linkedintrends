@@ -37,19 +37,31 @@ def health():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})
 
 
-def run_scraper_for_keyword(keyword, scrolls=None):
+def run_scraper_for_keyword(keyword, scrolls=None, sort=None, headless=True, delay_min=None, delay_max=None):
     """Run the scraper for a single keyword. Returns job info."""
     scraper_path = os.path.join(os.path.dirname(__file__), "scraper.py")
-    cmd = [sys.executable, scraper_path, keyword, "--headless"]
+    cmd = [sys.executable, scraper_path, keyword]
 
+    if headless:
+        cmd.append("--headless")
     if scrolls:
         cmd.extend(["--scrolls", str(int(scrolls))])
+    if sort:
+        cmd.extend(["--sort", sort])
+
+    # Pass delay settings via environment variables
+    env = os.environ.copy()
+    if delay_min:
+        env["DELAY_MIN"] = str(delay_min)
+    if delay_max:
+        env["DELAY_MAX"] = str(delay_max)
 
     process = subprocess.Popen(
         cmd,
         cwd=os.path.dirname(__file__),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        env=env,
     )
 
     job_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -71,9 +83,9 @@ def process_queue():
             if not queue:
                 queue_running = False
                 return
-            keyword, scrolls = queue.pop(0)
+            item = queue.pop(0)
 
-        job_id = run_scraper_for_keyword(keyword, scrolls)
+        job_id = run_scraper_for_keyword(**item)
         # Wait for this job to finish before starting next
         jobs[job_id]["process"].wait()
 
@@ -97,18 +109,28 @@ def scrape():
     if not keywords:
         return jsonify({"error": "No valid keywords provided"}), 400
 
-    scrolls = data.get("scrolls")
+    # Extract settings
+    settings = {
+        "scrolls": data.get("scrolls"),
+        "sort": data.get("sort"),
+        "headless": data.get("headless", True),
+        "delay_min": data.get("delay_min"),
+        "delay_max": data.get("delay_max"),
+    }
 
     with queue_lock:
         for kw in keywords:
-            queue.append((kw, scrolls))
+            queue.append({"keyword": kw, **settings})
 
     # Start queue processor if not already running
     if not queue_running:
         threading.Thread(target=process_queue, daemon=True).start()
 
+    sort_label = f", sort={settings['sort']}" if settings['sort'] else ""
+    scrolls_label = f", scrolls={settings['scrolls']}" if settings['scrolls'] else ""
+
     return jsonify({
-        "message": f"Queued {len(keywords)} keyword(s): {', '.join(keywords)}",
+        "message": f"Queued {len(keywords)} keyword(s): {', '.join(keywords)}{scrolls_label}{sort_label}",
         "keywords": keywords,
         "queue_size": len(queue),
     })

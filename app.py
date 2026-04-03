@@ -1024,14 +1024,40 @@ with tab6:
 
             # ===== ENGAGEMENT DISTRIBUTION =====
             st.write("### Engagement Distribution")
-            fig_box = px.box(
-                compare_df, x="author_name", y="total_engagement",
-                title="Engagement Spread per Company",
-                labels={"author_name": "Company", "total_engagement": "Engagement"},
-                color="author_name",
-                points="all",
-            )
-            st.plotly_chart(fig_box, width="stretch")
+            ed1, ed2 = st.columns(2)
+            with ed1:
+                # Histogram overlay — shows engagement range per company
+                fig_hist = px.histogram(
+                    compare_df, x="total_engagement", color="author_name",
+                    title="Engagement Distribution",
+                    labels={"total_engagement": "Engagement per Post", "author_name": "Company"},
+                    barmode="overlay",
+                    opacity=0.7,
+                    nbins=15,
+                )
+                st.plotly_chart(fig_hist, width="stretch")
+
+            with ed2:
+                # Radar/comparison of key metrics
+                radar_data = []
+                for name in all_selected:
+                    adf = compare_df[compare_df["author_name"] == name]
+                    radar_data.append({
+                        "Company": name,
+                        "Avg Likes": adf["likes"].mean(),
+                        "Avg Comments": adf["comments"].mean(),
+                        "Avg Reposts": adf["reposts"].mean(),
+                        "Max Engagement": adf["total_engagement"].max(),
+                        "Consistency": 100 - min(100, adf["total_engagement"].std()),
+                    })
+                radar_df = pd.DataFrame(radar_data)
+                fig_radar = px.bar(
+                    radar_df.melt(id_vars="Company", var_name="Metric", value_name="Value"),
+                    x="Metric", y="Value", color="Company",
+                    title="Performance Comparison",
+                    barmode="group",
+                )
+                st.plotly_chart(fig_radar, width="stretch")
 
             # ===== HASHTAG COMPARISON =====
             st.write("### Hashtag Strategy Comparison")
@@ -1051,13 +1077,31 @@ with tab6:
             # ===== POST LENGTH COMPARISON =====
             st.write("### Post Length Comparison")
             compare_df["word_count"] = compare_df["post_text"].fillna("").apply(lambda x: len(x.split()))
-            fig_len = px.box(
-                compare_df, x="author_name", y="word_count",
-                title="Post Length (Words)",
-                labels={"author_name": "Company", "word_count": "Words"},
-                color="author_name",
-            )
-            st.plotly_chart(fig_len, width="stretch")
+
+            pl1, pl2 = st.columns(2)
+            with pl1:
+                # Average word count bar
+                len_stats = compare_df.groupby("author_name")["word_count"].agg(["mean", "min", "max"]).reset_index()
+                len_stats.columns = ["Company", "Avg Words", "Min Words", "Max Words"]
+                fig_len = px.bar(
+                    len_stats, x="Company", y="Avg Words",
+                    title="Avg Post Length (Words)",
+                    color="Company",
+                    hover_data=["Min Words", "Max Words"],
+                )
+                st.plotly_chart(fig_len, width="stretch")
+
+            with pl2:
+                # Word count vs engagement scatter
+                fig_wc = px.scatter(
+                    compare_df, x="word_count", y="total_engagement",
+                    color="author_name",
+                    title="Post Length vs Engagement",
+                    labels={"word_count": "Words", "total_engagement": "Engagement", "author_name": "Company"},
+                    opacity=0.7,
+                    trendline="lowess",
+                )
+                st.plotly_chart(fig_wc, width="stretch")
 
             # ===== WINS & GAPS =====
             st.write("### Key Takeaways")

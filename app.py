@@ -192,7 +192,7 @@ with tab1:
             st.markdown(f"**Author:** {row.get('author_name', 'Unknown')}")
             st.markdown(f"**Headline:** {row.get('author_headline', '')}")
             st.markdown(f"**Posted:** {row.get('posted_time_raw', 'N/A')}")
-            st.markdown(f"**Post:**\n{row.get('post_text', '')[:500]}")
+            st.markdown(f"**Post:**\n{row.get('post_text', '')}")
 
             # Engagement history chart
             history = row.get("engagement_history", [])

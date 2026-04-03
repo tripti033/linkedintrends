@@ -84,7 +84,6 @@ def upsert_posts(posts: list[dict], keyword: str) -> dict:
             {
                 "$setOnInsert": {
                     "post_id": pid,
-                    "author_name": post.get("author_name", ""),
                     "media_type": post.get("media_type", "text"),
                     "first_scraped_at": now,
                     "posted_time_raw": post.get("posted_time", ""),
@@ -96,6 +95,9 @@ def upsert_posts(posts: list[dict], keyword: str) -> dict:
                     "last_scraped_at": now,
                     "author_headline": post.get("author_headline", ""),
                     "author_profile_url": post.get("author_profile_url", ""),
+                    # Update author_name if we got one (fixes previously missing names)
+                    **({"author_name": post["author_name"]}
+                       if post.get("author_name") else {}),
                     # Always update post_text — re-scrape may have full text
                     # where previous scrape had truncated text
                     **({"post_text": post["post_text"]}

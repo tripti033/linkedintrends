@@ -151,11 +151,52 @@ EXTRACT_ALL_POSTS_JS = r"""
         };
 
         // ==== AUTHOR NAME ====
+        // Strategy 1: Follow button aria-label (most reliable)
         const followBtn = post.querySelector('button[aria-label*="Follow"]');
         if (followBtn) {
             const label = followBtn.getAttribute('aria-label') || '';
             const m = label.match(/Follow\s+(.+)/i);
             if (m) result.author_name = m[1].trim();
+        }
+
+        // Strategy 2: Actor name component (LinkedIn feed layout)
+        if (!result.author_name) {
+            const actorSelectors = [
+                '.update-components-actor__name span[dir="ltr"]',
+                '.feed-shared-actor__name span[dir="ltr"]',
+                '.update-components-actor__name span',
+                '.feed-shared-actor__name span',
+                '.feed-shared-actor__title span',
+            ];
+            for (const sel of actorSelectors) {
+                const el = post.querySelector(sel);
+                if (el) {
+                    const name = el.textContent.trim();
+                    if (name && name.length > 1 && name.length < 80) {
+                        result.author_name = name;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Strategy 3: First profile link text (clean up doubled names)
+        if (!result.author_name) {
+            const profileLink = post.querySelector('a[href*="/in/"], a[href*="/company/"]');
+            if (profileLink) {
+                let name = profileLink.textContent.trim().split('\n')[0].trim();
+                // LinkedIn sometimes doubles the name: "Robin RainaRobin Raina"
+                if (name.length > 4) {
+                    const half = Math.floor(name.length / 2);
+                    if (name.substring(0, half) === name.substring(half)) {
+                        name = name.substring(0, half);
+                    }
+                }
+                if (name && name.length > 1 && name.length < 80
+                    && name !== 'Follow' && name !== 'View') {
+                    result.author_name = name;
+                }
+            }
         }
 
         // ==== AUTHOR PROFILE URL ====

@@ -176,7 +176,7 @@ if df.empty:
     st.stop()
 
 # --- Tabs ---
-tab1, tab2, tab3, tab4 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword Trends", "Author Analysis", "Content Strategy"])
 
 # =================== TAB 1: TOP POSTS ===================
 with tab1:
@@ -636,6 +636,228 @@ with tab4:
 
     elif author_search.strip():
         st.info(f"No posts found for \"{author_search}\" in author database. Click 'Scrape Author Posts' to fetch them.")
+
+
+# =================== TAB 5: CONTENT STRATEGY ===================
+with tab5:
+    st.subheader("Content Strategy for Ingro Energy")
+    st.caption("Data-driven insights to help your content team create high-engagement posts")
+
+    import re as _re
+    from collections import Counter
+
+    # --- Extract hashtags from all posts ---
+    all_hashtags = []
+    hashtag_engagement = {}  # hashtag -> [engagement scores]
+    for _, row in df.iterrows():
+        text = row.get("post_text", "") or ""
+        tags = _re.findall(r'#(\w+)', text)
+        engagement = row.get("total_engagement", 0)
+        for tag in tags:
+            tag_lower = tag.lower()
+            all_hashtags.append(tag_lower)
+            if tag_lower not in hashtag_engagement:
+                hashtag_engagement[tag_lower] = []
+            hashtag_engagement[tag_lower].append(engagement)
+
+    # ===== SECTION 1: WHAT TO POST =====
+    st.write("### What to Post About")
+    st.caption("Topics and hashtags that drive the most engagement in your industry")
+
+    ht1, ht2 = st.columns(2)
+
+    with ht1:
+        st.write("**Top Hashtags by Avg Engagement**")
+        if hashtag_engagement:
+            hashtag_stats = []
+            for tag, engagements in hashtag_engagement.items():
+                if len(engagements) >= 2:  # only show hashtags used 2+ times
+                    hashtag_stats.append({
+                        "hashtag": f"#{tag}",
+                        "times_used": len(engagements),
+                        "avg_engagement": sum(engagements) / len(engagements),
+                        "total_engagement": sum(engagements),
+                    })
+            if hashtag_stats:
+                ht_df = pd.DataFrame(hashtag_stats).sort_values("avg_engagement", ascending=False).head(15)
+                fig_ht = px.bar(
+                    ht_df, x="hashtag", y="avg_engagement",
+                    title="Hashtags That Drive Engagement",
+                    labels={"hashtag": "Hashtag", "avg_engagement": "Avg Engagement"},
+                    hover_data=["times_used", "total_engagement"],
+                )
+                st.plotly_chart(fig_ht, width="stretch")
+            else:
+                st.info("Need more data — scrape more keywords to see hashtag trends.")
+        else:
+            st.info("No hashtags found in posts yet.")
+
+    with ht2:
+        st.write("**Most Used Hashtags**")
+        if all_hashtags:
+            top_tags = Counter(all_hashtags).most_common(20)
+            tag_df = pd.DataFrame(top_tags, columns=["Hashtag", "Count"])
+            tag_df["Hashtag"] = tag_df["Hashtag"].apply(lambda x: f"#{x}")
+            fig_tags = px.bar(tag_df, x="Hashtag", y="Count", title="Most Frequent Hashtags")
+            st.plotly_chart(fig_tags, width="stretch")
+
+    # ===== SECTION 2: HOW TO POST =====
+    st.write("### How to Post (Content Format)")
+    st.caption("Which format gets the most engagement")
+
+    if "media_type" in df.columns:
+        fmt1, fmt2 = st.columns(2)
+        with fmt1:
+            media_eng = df.groupby("media_type").agg(
+                count=("post_text", "count"),
+                avg_engagement=("total_engagement", "mean"),
+                avg_likes=("likes", "mean"),
+                avg_comments=("comments", "mean"),
+            ).reset_index()
+            media_eng = media_eng.sort_values("avg_engagement", ascending=False)
+            fig_fmt = px.bar(
+                media_eng, x="media_type", y="avg_engagement",
+                title="Avg Engagement by Content Type",
+                labels={"media_type": "Content Type", "avg_engagement": "Avg Engagement"},
+                color="media_type",
+            )
+            st.plotly_chart(fig_fmt, width="stretch")
+
+        with fmt2:
+            fig_fmt2 = px.bar(
+                media_eng, x="media_type", y=["avg_likes", "avg_comments"],
+                title="Likes vs Comments by Format",
+                labels={"media_type": "Content Type", "value": "Average"},
+                barmode="group",
+            )
+            st.plotly_chart(fig_fmt2, width="stretch")
+
+        # Best format recommendation
+        if not media_eng.empty:
+            best = media_eng.iloc[0]
+            st.success(
+                f"**Best performing format: {best['media_type'].upper()}** — "
+                f"avg {best['avg_engagement']:.0f} engagement per post "
+                f"({best['avg_likes']:.0f} likes, {best['avg_comments']:.0f} comments)"
+            )
+
+    # ===== SECTION 3: POST LENGTH ANALYSIS =====
+    st.write("### Optimal Post Length")
+    df_with_length = df.copy()
+    df_with_length["word_count"] = df_with_length["post_text"].fillna("").apply(lambda x: len(x.split()))
+    df_with_length["length_bucket"] = pd.cut(
+        df_with_length["word_count"],
+        bins=[0, 25, 50, 100, 200, 500, 9999],
+        labels=["< 25 words", "25-50", "50-100", "100-200", "200-500", "500+"],
+    )
+
+    len1, len2 = st.columns(2)
+    with len1:
+        length_eng = df_with_length.groupby("length_bucket", observed=True).agg(
+            count=("post_text", "count"),
+            avg_engagement=("total_engagement", "mean"),
+        ).reset_index()
+        fig_len = px.bar(
+            length_eng, x="length_bucket", y="avg_engagement",
+            title="Avg Engagement by Post Length",
+            labels={"length_bucket": "Post Length", "avg_engagement": "Avg Engagement"},
+        )
+        st.plotly_chart(fig_len, width="stretch")
+
+    with len2:
+        fig_scatter = px.scatter(
+            df_with_length, x="word_count", y="total_engagement",
+            title="Word Count vs Engagement",
+            labels={"word_count": "Words", "total_engagement": "Engagement"},
+            opacity=0.6,
+        )
+        st.plotly_chart(fig_scatter, width="stretch")
+
+    # Best length recommendation
+    if not length_eng.empty:
+        best_len = length_eng.sort_values("avg_engagement", ascending=False).iloc[0]
+        st.success(f"**Best performing length: {best_len['length_bucket']}** — avg {best_len['avg_engagement']:.0f} engagement")
+
+    # ===== SECTION 4: TOP POST TEMPLATES =====
+    st.write("### Top Post Templates")
+    st.caption("Copy the structure of the best-performing posts for your content team")
+
+    top_n = st.slider("Show top N posts", 3, 20, 5, key="template_slider")
+    template_df = df.sort_values("total_engagement", ascending=False).head(top_n)
+
+    for idx, (_, row) in enumerate(template_df.iterrows()):
+        text = row.get("post_text", "") or ""
+        author = row.get("author_name", "Unknown")
+        engagement = row.get("total_engagement", 0)
+        likes = row.get("likes", 0)
+        media = row.get("media_type", "text")
+        word_count = len(text.split())
+        hashtags = _re.findall(r'#\w+', text)
+
+        with st.expander(f"#{idx+1} — {author} | {engagement:,} engagement | {media} | {word_count} words"):
+            st.markdown(f"**Engagement:** {likes:,} likes, {row.get('comments',0):,} comments, {row.get('reposts',0):,} reposts")
+            st.markdown(f"**Format:** {media} | **Length:** {word_count} words | **Hashtags:** {', '.join(hashtags[:5]) if hashtags else 'None'}")
+
+            post_url = row.get("post_url", "")
+            if post_url and "/feed/update/" in str(post_url):
+                st.markdown(f"[View Original Post]({post_url})")
+
+            st.markdown("**Full Post:**")
+            st.text_area("", text, height=200, key=f"template_{idx}", label_visibility="collapsed")
+
+            # Quick analysis
+            has_emoji = bool(_re.search(r'[\U0001F300-\U0001F9FF]', text))
+            has_question = "?" in text
+            has_list = bool(_re.search(r'^\s*[\d•\-\*]', text, _re.MULTILINE))
+            has_cta = any(w in text.lower() for w in ["comment below", "share your", "what do you think", "let me know", "thoughts?", "agree?"])
+
+            patterns = []
+            if has_emoji:
+                patterns.append("Uses emojis")
+            if has_question:
+                patterns.append("Asks a question")
+            if has_list:
+                patterns.append("Uses lists/bullets")
+            if has_cta:
+                patterns.append("Has call-to-action")
+            if len(hashtags) > 0:
+                patterns.append(f"{len(hashtags)} hashtags")
+
+            if patterns:
+                st.markdown(f"**Why it works:** {' | '.join(patterns)}")
+
+    # ===== SECTION 5: SUGGESTED HASHTAGS =====
+    st.write("### Suggested Hashtags for Ingro Energy")
+    if hashtag_engagement:
+        # Show hashtags sorted by avg engagement that are relevant to energy/BESS
+        energy_tags = []
+        for tag, engagements in hashtag_engagement.items():
+            energy_keywords = ["energy", "bess", "battery", "storage", "solar", "grid", "renewable",
+                               "power", "ev", "lithium", "green", "climate", "carbon", "sustainability",
+                               "cleantech", "electri", "wind", "hydrogen"]
+            is_relevant = any(kw in tag.lower() for kw in energy_keywords) or len(engagements) >= 3
+            if is_relevant:
+                energy_tags.append({
+                    "tag": f"#{tag}",
+                    "uses": len(engagements),
+                    "avg_eng": sum(engagements) / len(engagements),
+                })
+
+        if energy_tags:
+            energy_tags.sort(key=lambda x: x["avg_eng"], reverse=True)
+            rec_tags = [t["tag"] for t in energy_tags[:15]]
+            st.code(" ".join(rec_tags), language=None)
+            st.caption("Copy these hashtags for your next LinkedIn post")
+
+            et_df = pd.DataFrame(energy_tags[:15])
+            fig_et = px.scatter(
+                et_df, x="uses", y="avg_eng", text="tag",
+                title="Hashtag Performance (size = frequency)",
+                labels={"uses": "Times Used", "avg_eng": "Avg Engagement"},
+                size="uses",
+            )
+            fig_et.update_traces(textposition="top center")
+            st.plotly_chart(fig_et, width="stretch")
 
 
 # --- Footer ---

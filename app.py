@@ -149,12 +149,13 @@ def load_posts():
             return 99999
         t = t.strip().lower()
         import re as _re
-        m = _re.match(r'(\d+)\s*(m|h|d|w|mo|y)', t)
+        # Match longer units first: mo/yr before m/y
+        m = _re.match(r'(\d+)\s*(mo|yr|w|d|h|m)', t)
         if not m:
             return 99999
         num = int(m.group(1))
         unit = m.group(2)
-        return {"m": num / 60, "h": num, "d": num * 24, "w": num * 168, "mo": num * 720, "y": num * 8760}.get(unit, 99999)
+        return {"m": num / 60, "h": num, "d": num * 24, "w": num * 168, "mo": num * 720, "yr": num * 8760}.get(unit, 99999)
 
     if "posted_time_raw" in df.columns:
         df["time_hours"] = df["posted_time_raw"].apply(time_to_hours)
@@ -219,17 +220,12 @@ with tab1:
             time_options = ["All", "< 24h", "< 1 week", "< 1 month"]
             selected_time = st.selectbox("Filter by time", time_options)
             if selected_time != "All":
-                time_map = {
-                    "< 24h": ["m", "h"],
-                    "< 1 week": ["m", "h", "d"],
-                    "< 1 month": ["m", "h", "d", "w"],
-                }
-                allowed = time_map[selected_time]
-                filtered_df = filtered_df[
-                    filtered_df["posted_time_raw"].fillna("").apply(
-                        lambda t: any(t.rstrip("ours").rstrip("in").rstrip("ay").rstrip("eek").rstrip("onth").rstrip("s").endswith(a) for a in allowed) if t else False
-                    )
-                ]
+                max_hours = {
+                    "< 24h": 24,
+                    "< 1 week": 168,
+                    "< 1 month": 720,
+                }[selected_time]
+                filtered_df = filtered_df[filtered_df["time_hours"] <= max_hours]
 
     # Sort option
     sc1, sc2 = st.columns(2)

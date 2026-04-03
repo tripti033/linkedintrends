@@ -216,8 +216,10 @@ EXTRACT_ALL_POSTS_JS = r"""
         const cleanText = (t) => t.trim()
             .replace(/…\s*more\s*$/i, '')
             .replace(/\.\.\.\s*more\s*$/i, '')
-            .replace(/\s*see less\s*$/i, '')
-            .replace(/\s*show less\s*$/i, '')
+            .replace(/\s*see\s*less\s*$/i, '')
+            .replace(/\s*show\s*less\s*$/i, '')
+            .replace(/\s*…\s*$/i, '')
+            .trim()
             .substring(0, 5000);
 
         // Try multiple selectors — LinkedIn changes these frequently

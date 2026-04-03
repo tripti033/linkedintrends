@@ -204,10 +204,12 @@ async def expand_all_posts(page: Page):
                 const directText = el.childNodes.length <= 3 ? text : '';
 
                 // Match various "more" patterns LinkedIn uses
-                if (directText === '…more' || directText === '...more'
-                    || directText.toLowerCase() === 'see more'
-                    || directText.toLowerCase() === 'show more'
-                    || text === '…more' || text === '...more') {
+                // Note: LinkedIn uses both "…more" and "… more" (with space)
+                const normalized = directText.toLowerCase().replace(/\s+/g, '');
+                const normalizedFull = text.toLowerCase().replace(/\s+/g, '');
+                if (normalized === '…more' || normalized === '...more'
+                    || normalized === 'seemore' || normalized === 'showmore'
+                    || normalizedFull === '…more' || normalizedFull === '...more') {
 
                     // Must be visible
                     if (el.offsetParent === null && el.style.display === 'none') continue;
@@ -237,9 +239,11 @@ async def expand_all_posts(page: Page):
         # Strategy 2: Playwright locators as backup — catches elements JS might miss
         for selector in [
             'button:has-text("…more")',
+            'button:has-text("… more")',
             'button:has-text("see more")',
             'span:has-text("…more")',
-            '[role="button"]:has-text("…more")',
+            'span:has-text("… more")',
+            '[role="button"]:has-text("… more")',
             '.feed-shared-inline-show-more-text',
         ]:
             try:

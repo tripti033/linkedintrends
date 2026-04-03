@@ -526,6 +526,99 @@ async def enrich_post_urls(page: Page, posts: list[PostData]) -> list[PostData]:
     return posts
 
 
+async def fetch_urls_by_clicking(
+    page: Page,
+    context,
+    posts: list[PostData],
+) -> list[PostData]:
+    """
+    For posts still missing URLs, click the three-dot menu → 'Copy link to post'
+    on each post container, then read the URL from the clipboard.
+    """
+    missing_indices = [i for i, p in enumerate(posts) if not p.post_url or "/feed/update/" not in p.post_url]
+    if not missing_indices:
+        return posts
+
+    print(f"\n[FETCH-URLS] Fetching URLs for {len(missing_indices)} posts via Copy Link...")
+    fetched = 0
+
+    # Grant clipboard permissions
+    try:
+        await context.grant_permissions(["clipboard-read", "clipboard-write"])
+    except Exception:
+        pass
+
+    # Clear clipboard first
+    try:
+        await page.evaluate("() => navigator.clipboard.writeText('')")
+    except Exception:
+        pass
+
+    # Click each menu button, grab link, and assign to posts positionally
+    all_menu_buttons = page.locator('button[aria-label*="control menu"]')
+    total_menus = await all_menu_buttons.count()
+    print(f"[FETCH-URLS] Found {total_menus} menu buttons on page")
+
+    post_idx = 0  # track which post we're assigning URLs to
+
+    for btn_idx in range(total_menus):
+        # Skip posts that already have URLs
+        while post_idx < len(posts) and posts[post_idx].post_url and "/feed/update/" in posts[post_idx].post_url:
+            post_idx += 1
+        if post_idx >= len(posts):
+            break
+
+        try:
+            menu_btn = all_menu_buttons.nth(btn_idx)
+            if not await menu_btn.is_visible():
+                continue
+
+            # Scroll to button and click
+            await menu_btn.scroll_into_view_if_needed()
+            await asyncio.sleep(0.3)
+            await menu_btn.click(timeout=2000)
+            await asyncio.sleep(0.8)
+
+            # Click "Copy link to post"
+            copy_link = page.get_by_text("Copy link to post", exact=True)
+            if await copy_link.count() > 0:
+                await copy_link.click(timeout=2000)
+                await asyncio.sleep(0.5)
+
+                # Read from clipboard
+                try:
+                    clipboard_url = await page.evaluate("() => navigator.clipboard.readText()")
+                    if clipboard_url and "linkedin.com" in clipboard_url and clipboard_url != "":
+                        post = posts[post_idx]
+                        # Extract activity ID from share URL
+                        # Format: /posts/author-slug-7445420960624586752-UpWZ?...
+                        activity_match = re.search(r'(\d{19,20})', clipboard_url)
+                        if activity_match:
+                            aid = activity_match.group(1)
+                            post.post_id = f"urn:li:activity:{aid}"
+                            post.post_url = f"https://www.linkedin.com/feed/update/urn:li:activity:{aid}/"
+                            fetched += 1
+                            print(f"  Got URL for: {post.author_name[:30]}")
+                except Exception:
+                    pass
+            else:
+                await page.keyboard.press("Escape")
+
+            await asyncio.sleep(0.3)
+            post_idx += 1
+
+        except Exception:
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.2)
+            except Exception:
+                pass
+            post_idx += 1
+
+    print(f"[FETCH-URLS] Found {fetched}/{len(missing_indices)} URLs via copy-link")
+    return posts
+
+
 async def run_scraper(
     keyword: str,
     scroll_count: int,
@@ -582,6 +675,10 @@ async def run_scraper(
                 # Try to find URLs for posts that are still missing them
                 posts = await enrich_post_urls(page, posts)
                 posts = await extract_post_urls_via_menu(page, posts)
+                posts = await fetch_urls_by_clicking(page, context, posts)
+
+                # Final URL update to DB — ensure post_url gets saved
+                # for posts that were enriched after initial extraction
 
                 log_path = save_posts_to_log(posts, keyword)
                 print_summary(posts, keyword)

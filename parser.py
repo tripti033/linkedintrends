@@ -88,11 +88,32 @@ EXTRACT_ALL_POSTS_JS = r"""
     const uniqueUrns = [...new Set(orderedUrns)];
 
     // ========================================================================
-    // Step 2: Find post containers
+    // Step 2: Find post containers — try multiple strategies
+    // LinkedIn changes these frequently
     // ========================================================================
-    let containers = [...document.querySelectorAll('[role="listitem"]')];
+    let containers = [];
 
-    // Fallback to data-display-contents top-level
+    // Strategy A: role="article" with feed-shared-update-v2 (current as of Apr 2026)
+    if (containers.length === 0) {
+        containers = [...document.querySelectorAll('[role="article"].feed-shared-update-v2')];
+    }
+
+    // Strategy B: role="article" with data-urn
+    if (containers.length === 0) {
+        containers = [...document.querySelectorAll('[role="article"][data-urn]')];
+    }
+
+    // Strategy C: feed-shared-update-v2 class
+    if (containers.length === 0) {
+        containers = [...document.querySelectorAll('.feed-shared-update-v2')];
+    }
+
+    // Strategy D: role="listitem" (old LinkedIn layout)
+    if (containers.length === 0) {
+        containers = [...document.querySelectorAll('[role="listitem"]')];
+    }
+
+    // Strategy E: data-display-contents (SDUI fallback)
     if (containers.length === 0) {
         const allDC = document.querySelectorAll('[data-display-contents="true"]');
         for (const c of allDC) {
@@ -279,19 +300,46 @@ EXTRACT_ALL_POSTS_JS = r"""
         }
 
         // ==== POST URL / POST ID ====
-        // Strategy A: Scan this container's innerHTML for activity URNs
-        // (catches URNs embedded in componentkey attrs, state keys, etc.)
-        const html = post.innerHTML || '';
-        let urnMatch = html.match(/urn:li:activity:(\d{15,25})/);
-        if (urnMatch) {
-            result.post_id = 'urn:li:activity:' + urnMatch[1];
-            result.post_url = 'https://www.linkedin.com/feed/update/urn:li:activity:' + urnMatch[1] + '/';
+        // Strategy 0: Check data-urn attribute on the container itself
+        // (current LinkedIn layout puts data-urn="urn:li:activity:XXX" on [role="article"])
+        const dataUrn = post.getAttribute('data-urn') || '';
+        if (dataUrn) {
+            const dm = dataUrn.match(/urn:li:(activity|ugcPost):(\d{15,25})/);
+            if (dm) {
+                result.post_id = dm[0];
+                result.post_url = 'https://www.linkedin.com/feed/update/' + dm[0] + '/';
+            }
         }
+
+        // Also check parent elements for data-urn
         if (!result.post_id) {
-            urnMatch = html.match(/urn:li:ugcPost:(\d{15,25})/);
+            let parent = post.parentElement;
+            for (let i = 0; i < 5 && parent; i++) {
+                const pu = parent.getAttribute('data-urn') || '';
+                const pm = pu.match(/urn:li:(activity|ugcPost):(\d{15,25})/);
+                if (pm) {
+                    result.post_id = pm[0];
+                    result.post_url = 'https://www.linkedin.com/feed/update/' + pm[0] + '/';
+                    break;
+                }
+                parent = parent.parentElement;
+            }
+        }
+
+        // Strategy A: Scan this container's innerHTML for activity URNs
+        if (!result.post_id) {
+            const html = post.innerHTML || '';
+            let urnMatch = html.match(/urn:li:activity:(\d{15,25})/);
             if (urnMatch) {
-                result.post_id = 'urn:li:ugcPost:' + urnMatch[1];
-                result.post_url = 'https://www.linkedin.com/feed/update/urn:li:ugcPost:' + urnMatch[1] + '/';
+                result.post_id = 'urn:li:activity:' + urnMatch[1];
+                result.post_url = 'https://www.linkedin.com/feed/update/urn:li:activity:' + urnMatch[1] + '/';
+            }
+            if (!result.post_id) {
+                urnMatch = html.match(/urn:li:ugcPost:(\d{15,25})/);
+                if (urnMatch) {
+                    result.post_id = 'urn:li:ugcPost:' + urnMatch[1];
+                    result.post_url = 'https://www.linkedin.com/feed/update/urn:li:ugcPost:' + urnMatch[1] + '/';
+                }
             }
         }
 

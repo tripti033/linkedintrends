@@ -148,31 +148,72 @@ tab1, tab2, tab3 = st.tabs(["Top Engaged Posts", "Engagement Insights", "Keyword
 with tab1:
     st.subheader("Top Engaged Posts")
 
+    # --- Filters ---
+    filtered_df = df.copy()
+
+    fc1, fc2, fc3 = st.columns(3)
+
     # Keyword filter
-    if "keywords" in df.columns:
-        all_keywords = sorted({
-            kw
-            for kws in df["keywords"]
-            for kw in (kws if isinstance(kws, list) else [])
-        })
-        search_term = st.text_input(
-            "Search keyword (e.g. solar, grid, bess)", ""
-        )
-        filtered_df = df.copy()
-        if search_term.strip():
-            search_lower = search_term.lower()
-            filtered_df = filtered_df[
-                filtered_df["keywords"].apply(
-                    lambda kws: any(
-                        search_lower in kw.lower()
-                        for kw in (kws if isinstance(kws, list) else [])
+    with fc1:
+        if "keywords" in df.columns:
+            all_keywords = sorted({
+                kw
+                for kws in df["keywords"]
+                for kw in (kws if isinstance(kws, list) else [])
+            })
+            search_term = st.text_input("Search keyword", "", placeholder="e.g. solar, bess")
+            if search_term.strip():
+                search_lower = search_term.lower()
+                filtered_df = filtered_df[
+                    filtered_df["keywords"].apply(
+                        lambda kws: any(
+                            search_lower in kw.lower()
+                            for kw in (kws if isinstance(kws, list) else [])
+                        )
                     )
-                )
-            ]
-        if all_keywords:
-            st.caption("Available keywords: " + ", ".join(all_keywords[:15]))
-    else:
-        filtered_df = df.copy()
+                ]
+
+    # Author filter
+    with fc2:
+        authors = sorted(df["author_name"].dropna().unique())
+        selected_author = st.selectbox("Filter by author", ["All"] + authors)
+        if selected_author != "All":
+            filtered_df = filtered_df[filtered_df["author_name"] == selected_author]
+
+    # Posted time filter
+    with fc3:
+        if "posted_time_raw" in df.columns:
+            time_options = ["All", "< 24h", "< 1 week", "< 1 month"]
+            selected_time = st.selectbox("Filter by time", time_options)
+            if selected_time != "All":
+                time_map = {
+                    "< 24h": ["m", "h"],
+                    "< 1 week": ["m", "h", "d"],
+                    "< 1 month": ["m", "h", "d", "w"],
+                }
+                allowed = time_map[selected_time]
+                filtered_df = filtered_df[
+                    filtered_df["posted_time_raw"].fillna("").apply(
+                        lambda t: any(t.rstrip("ours").rstrip("in").rstrip("ay").rstrip("eek").rstrip("onth").rstrip("s").endswith(a) for a in allowed) if t else False
+                    )
+                ]
+
+    # Sort option
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        sort_by = st.selectbox("Sort by", ["Total Engagement", "Likes", "Comments", "Reposts"])
+        sort_col = {
+            "Total Engagement": "total_engagement",
+            "Likes": "likes",
+            "Comments": "comments",
+            "Reposts": "reposts",
+        }[sort_by]
+    with sc2:
+        sort_order = st.selectbox("Order", ["Highest first", "Lowest first"])
+        ascending = sort_order == "Lowest first"
+
+    if "keywords" in df.columns and all_keywords:
+        st.caption("Available keywords: " + ", ".join(all_keywords[:15]))
 
     # Stats cards
     col1, col2, col3, col4 = st.columns(4)
@@ -182,7 +223,7 @@ with tab1:
     col4.metric("Total Reposts", f"{filtered_df['reposts'].sum():,}")
 
     # Sorted posts
-    df_sorted = filtered_df.sort_values("total_engagement", ascending=False)
+    df_sorted = filtered_df.sort_values(sort_col, ascending=ascending)
 
     for _, row in df_sorted.iterrows():
         with st.expander(

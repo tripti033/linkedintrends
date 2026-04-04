@@ -886,7 +886,7 @@ with tab6:
     with sc2:
         comp_url = st.text_input("LinkedIn URL (company or profile)", placeholder="e.g. https://www.linkedin.com/company/fluence/", key="comp_url")
 
-    comp_scrolls = st.slider("Scrolls (more = more posts)", 2, 30, 10, key="comp_scrolls")
+    comp_scrolls = st.number_input("Scrolls (more = more posts)", min_value=1, max_value=50, value=10, key="comp_scrolls")
 
     if st.button("Scrape & Add"):
         if not comp_name.strip() and not comp_url.strip():
